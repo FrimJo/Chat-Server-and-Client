@@ -1,0 +1,126 @@
+package application;
+
+import static org.junit.Assert.*;
+
+import org.junit.Test;
+
+public class PDU_FactoryTest {
+
+	@Test
+	public void testReg() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testAlive() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testChtopicString() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testChtopicIntString() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testNotreg() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testGetlist() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testMessage() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testCompress() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testDeCompress() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testChecksum() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testQuit() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testJoin() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testNicks() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testWhois() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testUinfo() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testUjoin() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testUleave() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testChnick() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testUcnick() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testAppendZerosString() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testAppendZerosByteArray() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testRemoveZerosString() {
+		fail("Not yet implemented");
+	}
+
+	@Test
+	public void testRemoveZerosByteArray() {
+		byte[] bytes = {3,5,2,5,'\0','\0','\0','\0'};
+		byte[] bytesAfterRemovedZeros = PDU_Factory.removeZeros(bytes);
+		assertEquals(4, bytesAfterRemovedZeros.length);
+	}
+
+}

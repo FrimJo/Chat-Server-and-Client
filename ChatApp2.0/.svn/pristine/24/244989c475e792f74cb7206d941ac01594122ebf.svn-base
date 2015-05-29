@@ -1,0 +1,21 @@
+package application;
+
+public class User {
+	private String	nickName;
+	private boolean encryption;
+	private boolean compression;
+	
+	public User(String nickName, boolean encryption, boolean compression){
+		this.nickName		= nickName;
+		this.encryption		= encryption;
+		this.compression	= compression;
+	}
+	
+	public String getNickName(){ return this.nickName; }
+	public boolean getEncryption(){ return this.encryption; }
+	public boolean getCompresstion(){ return this.compression; }
+	
+	public void getNickName(String nickName){ this.nickName = nickName; }
+	public void getEncryption(boolean encryption){ this.encryption = encryption; }
+	public void getCompression(boolean compression){ this.compression = compression; }
+}

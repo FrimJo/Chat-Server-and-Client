@@ -1,0 +1,324 @@
+package application;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.InetAddress;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.sql.Time;
+
+
+public class ToServer extends TCP{
+	private static int			threadCounter = 0;
+	private String				nick;
+	private String				topic;
+	private byte[]				cryptKey;
+	
+	public ToServer(String client_ip, int client_port, String topic) throws UnknownHostException, IOException{
+		super("Client thread " + threadCounter++, client_ip, client_port);
+		this.nick = null;
+		this.topic = topic;
+		this.cryptKey = new byte[0];
+	}
+
+	public void connect(String nick) throws UnknownHostException, IOException{
+		this.nick = nick;
+		super.connect();
+		super.send(PDU_Factory.join(nick).getBytes());
+		System.out.println("JOIN message sent!");
+	}
+	
+	@Override
+	public void disconnect(){
+		if(this.socket != null){
+			try {
+				super.send(PDU_Factory.quit().getBytes());
+				System.out.println("QUIT message sent!");
+				super.socket.close();
+			} catch (IOException e) {
+				Client.INSTANCE.println("Lost connection with server.");
+			}
+			
+		}		
+	}
+	
+	@Override
+	public void receive(byte[] bytes, int bytesRead) throws IOException{
+		
+		PDU pdu = new PDU(bytes, bytesRead);
+		String nick;
+		switch(pdu.getByte(0)){
+		case OpCodes.NICKS:
+			System.out.println("\nReceived PDU NICKS.");
+			System.out.println("Op code: " + (byte) pdu.getByte(0));
+			System.out.println("nr nicks: " + (byte) pdu.getByte(1));
+			System.out.println("Length of string: " + (short) pdu.getShort(2));
+			String nicks = new String ( pdu.getSubrange(4, pdu.getShort(2) ), "UTF-8" );
+			System.out.println("String: " + nicks);
+			
+			
+			String[] nickList = PDU_Factory.removeZeros(nicks);
+			
+			Client.INSTANCE.setNick(nickList[0]);
+			this.nick = nickList[0];
+			
+			for(int i = 0; i < nickList.length; i++){
+				Client.INSTANCE.addUser(new User(nickList[i]));
+			}
+			
+			break;
+		case OpCodes.MESSAGE:
+			
+			if (PDU_Factory.checksum(pdu, 3)) {
+				System.out.println("Checksum match!");
+				String text = "";
+				
+				int msgType = pdu.getByte(1);
+				int nickLength = pdu.getByte(2);
+				//short checksum = pdu.getByte(3);
+				int cryptCompByteLength = pdu.getShort(4);
+				int timeStamp = (int) pdu.getInt(8);
+				byte[] messageByteWithZeroes = pdu.getSubrange(12, cryptCompByteLength);
+				byte[] messageByte = PDU_Factory.removeZeros(messageByteWithZeroes);
+				byte[] nickname = pdu.getSubrange(12 + cryptCompByteLength, nickLength);
+				
+				
+				switch (msgType) {
+				case MsgTypes.TEXT:
+					System.out.println("MsgTypes.TEXT");
+					text = new String(pdu.getSubrange(12, (int) pdu.getShort(4)), "UTF-8");
+					break;
+
+				case MsgTypes.COMP:
+					System.out.println("MsgTypes.COMP");
+					byte[] compBytePDU = pdu.getSubrange(12, (int) pdu.getShort(4) );
+					PDU compPDU = new PDU( compBytePDU, compBytePDU.length );
+					
+					if(PDU_Factory.checksum(compPDU, 1)){
+						System.out.println("Checksum match! (MsgTypes.COMP)");
+						int compTextLength = compPDU.getShort(2);
+						byte[] compBytes = compPDU.getSubrange(8, compTextLength);
+						text = PDU_Factory.deCompress(compBytes);
+					} else {
+						System.err.println("Checksum missmatch! (MsgTypes.COMP)");
+					}
+					
+					break;
+				case MsgTypes.CRYPT:
+					
+					System.out.println("MsgTypes.CRYPT");
+					byte[] cryptBytePDU = pdu.getSubrange(12, (int) pdu.getShort(4) );
+					PDU cryptPDU = new PDU( cryptBytePDU, cryptBytePDU.length );
+					
+					if(PDU_Factory.checksum(cryptPDU, 1) && (this.cryptKey.length != 0)){
+						System.out.println("Checksum match! (MsgTypes.CRYPT)");
+						int cryptTextLength = cryptPDU.getShort(2);
+						byte[] cryptBytes = cryptPDU.getSubrange(8, cryptTextLength);
+						Crypt.decrypt(cryptBytes, cryptBytes.length, this.cryptKey, this.cryptKey.length);
+						text = new String( cryptBytes, "UTF-8");
+					}else if(this.cryptKey.length != 0){
+						System.err.println("Checksum missmatch! (MsgTypes.CRYPT)");
+					} 
+					break;
+				
+				case MsgTypes.COMPCRYPT:
+					System.out.println("MsgTypes.COMPCRYPT");
+					
+					PDU cryptCompPDU = new PDU(messageByte, messageByte.length);
+					int algoritm = cryptCompPDU.getByte(0);
+					
+					if (PDU_Factory.checksum(cryptCompPDU, 1) && (algoritm == 0)) {
+						
+						// get all values from the crypted & compressed PDU:
+						//checksum = cryptCompPDU.getByte(1);
+						cryptCompByteLength = cryptCompPDU.getShort(2);
+						int compByteLength = cryptCompPDU.getShort(4);
+						byte[] cryptCompByte = cryptCompPDU.getSubrange(12, cryptCompByteLength);
+						
+						Crypt.decrypt(cryptCompByte, cryptCompByte.length, cryptKey, cryptKey.length);
+						
+						PDU compPDU2 = new PDU(cryptCompByte, cryptCompByte.length);
+						
+						if (PDU_Factory.checksum(compPDU2, 1) && (algoritm == 0)) {
+							
+							// get all values from compressed PDU:
+							compByteLength = compPDU2.getShort(2);
+							byte [] compByte = compPDU2.getSubrange(12, compByteLength);
+							
+							text = PDU_Factory.deCompress(compByte);
+							
+						} else if(algoritm != 0){
+							Client.INSTANCE.println("Can't decompress message, unknown algoritm!");
+						} else {
+							System.err.println("Checksum missmatch! (MsgTypes.COMPCRYPT stage 2)");
+						}
+					} else if(algoritm != 0) {
+						Client.INSTANCE.println("Can't decrypt message, unknown algoritm!");
+					} else {
+						System.err.println("Checksum missmatch! (MsgTypes.COMPCRYPT stage 1)");
+					}			
+					break;
+				default:
+					break;
+				}
+				if (text.length() != 0) {
+					Client.INSTANCE.println(timeStamp , new String(nickname, "UTF-8") + ": " + text);
+				}
+				
+			}else {
+				System.err.println("Checksum missmatch");
+			}
+
+			break;
+			
+		case OpCodes.UINFO:
+			System.out.println("\nReceived PDU UINFO");
+			System.out.println("OpCode: "+ (byte) pdu.getByte(0));
+			System.out.println("Pad: "+ new String( pdu.getSubrange(1, 3), "UTF-8" ));
+			System.out.println("Address: "+ InetAddress.getByAddress( pdu.getSubrange(4, 4) ).getHostAddress() );
+			
+			Client.INSTANCE.println("Who is:" + InetAddress.getByAddress( pdu.getSubrange(4, 4) ).getHostAddress() );
+			
+			
+			
+			break;
+			
+		case OpCodes.UJOIN:
+			System.out.println("\nReceived PDU UJOIN.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2));
+			System.out.println("Tidsstämpel: " + pdu.getInt(4));
+			System.out.println("Nickname: "+ new String( pdu.getSubrange(8, pdu.getByte(1)), "UTF-8") );
+			nick = new String( pdu.getSubrange(8, pdu.getByte(1)), "UTF-8");
+			nick = PDU_Factory.removeZeros(nick)[0];
+			
+			if( !nick.equals(this.nick) ) {
+				Client.INSTANCE.addUser(new User(nick) );
+			}
+			Client.INSTANCE.println( nick + " joined at: " + new Time(pdu.getInt(4)).toString());
+			break;
+			
+		case OpCodes.ULEAVE:
+			System.out.println("\nReceived PDU ULEAVE.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2));
+			System.out.println("TidsstStampel: " + (int) pdu.getInt(4));
+			System.out.println("Nickname: "+ new String( pdu.getSubrange(8, pdu.getByte(1)), "UTF-8") );
+			
+			nick = new String(pdu.getSubrange(8, pdu.getByte(1)), "UTF-8");
+			
+			Client.INSTANCE.removeUser(new User( nick ));
+			
+			
+			Client.INSTANCE.println("");
+			break;
+			
+		case OpCodes.UCNICK:
+			System.out.println("\nReceived PDU UCNICK.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of old nick: "+ pdu.getByte(1));
+			System.out.println("Length of new nick: "+ pdu.getByte(2));
+			System.out.println("Pad: "+ pdu.getByte(3));
+			System.out.println("TidsstStampel: " + pdu.getInt(4));
+			
+			String nickOld = PDU_Factory.removeZeros(new String( pdu.getSubrange(8, pdu.getByte(1)), "UTF-8" ) )[0];
+			System.out.println("NickOld: " + nickOld);
+			String nickNew = PDU_Factory.removeZeros(new String( pdu.getSubrange(8 + pdu.getByte(1), pdu.getByte(2)), "UTF-8" ) )[0];
+			System.out.println("NickNew: " + nickNew);
+			
+			if(nickOld.equals(this.nick)){
+				this.nick = nickNew;
+				Client.INSTANCE.setNick(nickNew);
+			}
+			
+			Client.INSTANCE.updateUser(new User(nickNew), new User(nickOld));
+			Client.INSTANCE.println( nickOld + " changed name to " + nickNew + " at: " + new Time(pdu.getInt(4)).toString() );
+			break;
+			
+		case OpCodes.CHTOPIC:
+			System.out.println("\nReceived PDU CHTOPIC.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2) );
+			System.out.println("Topic: " + new String( pdu.getSubrange(4, pdu.getByte(1)), "UTF-8" ));
+			this.topic = new String( pdu.getSubrange(4, pdu.getByte(1)), "UTF-8" );
+			Client.INSTANCE.setTopic(this.topic);
+			break;
+			
+		default:
+			System.out.println("Wrong OpCode received from server! receved: " + pdu.getByte(0));
+			break;
+		}
+	}
+	
+	public void sendPDU(PDU pdu) throws SocketException, IOException {
+		if(this.socket != null){
+			super.send(pdu.getBytes());
+		}else{
+			throw new SocketException();
+		}
+	}
+	
+	public void getUserInfo(User user) throws SocketException, IOException {
+			sendPDU(PDU_Factory.whois( user.getNick() ));
+			System.out.println("WHOIS message sent!");
+	}
+	
+	public String getNick(){
+		return this.nick;
+	}
+	
+	public void changeNickName(String nick) throws  SocketException, IOException {
+		System.out.println("Entered method changeNickName in ToServer");
+		if(nick != this.nick){
+			sendPDU( PDU_Factory.chnick(nick) );
+			System.out.println("CHNICK message sent!");
+		}
+	}
+	
+	public String getTopic(){
+		return this.topic;
+	}
+	
+	public void setTopic(String topic) throws SocketException, IOException {
+		sendPDU(PDU_Factory.chtopic(topic));
+		System.out.println("CHTOPIC message sent!");
+	}
+	
+	public void sendMessage(int type, String text) throws SocketException, IOException, WrongCryptTypeException{
+		sendPDU(PDU_Factory.message(type, text, this.cryptKey) );
+	}
+	
+	public String getCrypyKey() throws UnsupportedEncodingException {
+		return new String(this.cryptKey,"UTF-8");
+	}
+	
+	public void setCryptKey(String cryptKey) throws UnsupportedEncodingException{
+		this.cryptKey = cryptKey.getBytes("UTF-8");
+	}
+	
+	@Override
+	public boolean equals(Object o){
+		if(o == null)
+			return false;
+		
+		if(o.getClass() != this.getClass())
+			return false;
+		
+		ToServer s = (ToServer) o;
+		
+		if(!s.toString().equals(this.toString()))
+			return false;
+		
+		return true;
+	}
+	
+	@Override
+	public String toString(){
+		return "[" + this.topic + "]";
+	}
+	
+	
+}
+

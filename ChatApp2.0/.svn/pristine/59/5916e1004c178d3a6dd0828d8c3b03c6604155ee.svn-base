@@ -1,0 +1,165 @@
+package application;
+
+
+
+import java.awt.Color;
+import java.awt.Toolkit;
+
+
+import java.awt.GridLayout;
+
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.awt.event.WindowEvent;
+import java.io.IOException;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+
+import javax.swing.BorderFactory;
+
+import javax.swing.DefaultListModel;
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JList;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JTextArea;
+
+
+
+public class GUI_Swing_Client extends JFrame implements GUI_Interface_Client, ActionListener{
+	//private Client	client;
+	//private User	user;
+	private JTextArea console;
+	private JTextArea commandline;
+	DefaultListModel listModel;
+	
+	private JButton enterButton;
+	private JButton connectButton;
+	
+	private JList serverList;
+	
+	
+	/**
+	 * 
+	 */
+	private static final long serialVersionUID = 6411499808530678723L;
+
+	public GUI_Swing_Client(){
+		//Set up the the user interface
+		this.setSize(1000, 500);
+	    this.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+	    
+	    this.setTitle("Chat Server");
+	    
+	    this.console = new JTextArea("");
+	    this.console.setEditable(false);
+	    this.console.setBorder(BorderFactory.createLineBorder(Color.BLACK));
+	    
+	    this.commandline = new JTextArea("");
+	    this.commandline.setEditable(true);
+	    this.commandline.setBorder(BorderFactory.createLineBorder(Color.BLACK));
+	    //this.commandline.setPreferredSize(new Dimension(500, 10));
+	    //this.commandline.setFont(new Font("sanserif", Font.PLAIN, 100));
+	    
+	    this.enterButton = new JButton("Quit");
+	    this.enterButton.setActionCommand("quit");
+	    this.enterButton.addActionListener(this);
+	    
+	    this.connectButton = new JButton("Connect");
+	    this.connectButton.setActionCommand("connect");
+	    this.connectButton.addActionListener(this);
+	    
+	    this.listModel = new DefaultListModel();
+	    this.serverList = new JList(this.listModel); 
+	    
+	    
+	    JPanel center = new JPanel();
+	    center.setLayout(new GridLayout(2,1));
+	    center.add(this.console);
+	    center.add(this.commandline);
+	    
+	    JPanel content = new JPanel();
+	    content.setLayout(new GridLayout(1,3));
+	    content.add(this.serverList);
+	    content.add(center);
+	    
+	    content.add(this.enterButton);
+	    content.add(this.connectButton);
+	    
+	    this.setContentPane(content);
+	    this.setVisible(true);
+	    
+	    /*try {
+			Client.INSTANCE.connectToServer("127.0.0.1", 2000, "Fredde");
+		} catch (UnknownHostException e1) {
+			println("Can't connect to server.");
+		} catch (IOException e2) {
+			println("IOException.");
+		}*/
+	    
+	}
+
+	@Override
+	public String in(String str) {
+		return JOptionPane.showInputDialog(str);
+	}
+
+	@Override
+	public void print(String str) {
+		this.console.append(str);
+		
+	}
+
+	@Override
+	public void println(String str) {
+		this.console.append(str+'\n');
+	}
+
+	@Override
+	public void receiveListOfServers(ArrayList<ServerInfo> serverList) {
+		for(ServerInfo s : serverList){
+			listModel.addElement(s);
+		}
+		
+	}
+
+	@Override
+	public void actionPerformed(ActionEvent e) {
+		
+		if ("quit".equals(e.getActionCommand())) {
+			shutDown();
+		}else if ("connect".equals(e.getActionCommand())) {
+		
+			ServerInfo selected = (ServerInfo) this.serverList.getSelectedValue();
+		
+		
+		
+			try {
+				Client.INSTANCE.connectToServer(selected.getInetAddress().getHostAddress(), selected.getServerPort(), "Fredde");
+			} catch (UnknownHostException e1) {
+				println("Can't connect to server.");
+			} catch (IOException e2) {
+				println("IOException.");
+			}
+		}
+		
+	}
+	
+	public void shutDown(){
+		println("System shutting down . . .");
+		try {
+			Client.INSTANCE.shutDown();
+			WindowEvent winClosingEvent = new WindowEvent( this, WindowEvent.WINDOW_CLOSING );
+		    Toolkit.getDefaultToolkit().getSystemEventQueue().postEvent( winClosingEvent );
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	@Override
+	public void start() {
+		// TODO Auto-generated method stub
+		
+	}
+}

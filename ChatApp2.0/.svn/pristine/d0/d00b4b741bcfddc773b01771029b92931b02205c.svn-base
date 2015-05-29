@@ -1,0 +1,87 @@
+package application;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.UnknownHostException;
+
+
+public abstract class TCP extends Thread{
+	
+	private boolean					stop = false;
+	
+	protected Socket				socket;
+	protected DataOutputStream		outStream;
+	protected InputStream			inStream;
+	protected Thread				waitThread;
+	protected byte[] 				streamBuffer;
+	
+	public TCP(String thread_name, String server_ip, int server_port) throws UnknownHostException, IOException{
+		super(thread_name);
+		this.socket = new Socket(server_ip, server_port);
+		this.outStream = new DataOutputStream(this.socket.getOutputStream());
+		this.inStream = this.socket.getInputStream();
+		this.streamBuffer = new byte[1024];
+		start();
+		
+	}
+	
+	public TCP(String thread_name, Socket socket) throws UnknownHostException, IOException{
+		super(thread_name);
+		this.socket = socket;
+		this.outStream = new DataOutputStream(this.socket.getOutputStream());
+		this.inStream = this.socket.getInputStream();
+		this.streamBuffer = new byte[1024];
+		start();
+	}
+	
+	@Override
+	public void run(){	
+		
+		while(!stop){
+			try {
+				if(this.inStream.read(this.streamBuffer) == -1){
+					disconnect();
+				}else{
+					//this.waitThread.interrupt();
+					try{
+						receive(this.streamBuffer);
+						
+					} catch (IOException e) {
+						System.err.println("ERROR TCP FFS!!");
+					}
+				}
+			} catch (IOException e1) {
+				//Catches the IOException but keeps the thread running.
+			}
+			
+		}
+		
+		System.out.println("TCP disconnected.");
+	}
+	
+	public abstract void receive(byte[] bytes) throws IOException;
+	
+	public void send(byte[] bytes) throws IOException{
+		this.outStream.write(bytes); 
+	}
+	
+	public void disconnect(){
+		this.stop = true;
+		try {
+			this.socket.close();
+		} catch (IOException e) {
+			//Catches the IOException but keeps the thread running.
+		}
+		
+	}
+	
+	protected InetAddress getInetAddress(){
+		return this.socket.getInetAddress();
+	}
+	
+	protected int getPort(){
+		return this.socket.getPort();
+	}
+}

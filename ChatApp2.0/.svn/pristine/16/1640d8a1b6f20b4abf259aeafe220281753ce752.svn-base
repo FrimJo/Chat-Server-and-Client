@@ -1,0 +1,91 @@
+package application;
+
+import javafx.event.ActionEvent;
+import javafx.event.EventHandler;
+import javafx.fxml.FXML;
+import javafx.scene.control.Button;
+
+import java.net.URL;
+import java.util.ResourceBundle;
+
+
+public class Client_GUI implements GUI_Interface{
+
+    @FXML
+    private ResourceBundle resources;
+
+    @FXML
+    private URL location;
+
+    @FXML
+    private Button connectButton;
+    
+    
+    @FXML
+    private Button button;
+    
+
+    @FXML
+    void initialize() {
+        assert connectButton != null : "fx:id=\"connectButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        //assert exitButton != null : "fx:id=\"exitButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert button != null : "fx:id=\"button\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        EventHandler<ActionEvent> buttonHandeler = new EventHandler<ActionEvent>(){
+
+			@Override
+			public void handle(ActionEvent arg0) {
+				if(arg0.getSource().getClass().equals(Button.class)){
+					Button button =  (Button) arg0.getSource();
+					
+					System.out.println(button.getId());
+					
+					switch (button.getId()) {
+					case "connectButton":
+						System.out.println("Connectbutton pressed");
+						break;
+						
+					case "exitButton":
+						System.out.println("Exitbutton pressed");
+						break;
+					default:
+						break;
+					}
+				}
+			}
+			
+		};
+		
+		this.connectButton.setOnAction(buttonHandeler);
+		//this.button.setOnAction(buttonHandeler);
+    }
+
+
+	@Override
+	public void print(String str) {
+		// TODO Auto-generated method stub
+		
+	}
+
+
+	@Override
+	public void println(String str) {
+		// TODO Auto-generated method stub
+		
+	}
+
+
+	@Override
+	public String in() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+
+	@Override
+	public void start() {
+		// TODO Auto-generated method stub
+		
+	}
+
+}
+

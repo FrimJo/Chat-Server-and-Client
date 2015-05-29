@@ -1,0 +1,226 @@
+package application;
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.Socket;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+
+/**
+ * Represents the connection between the client and the chat server.
+ * Extends class TCP.
+ * @author Fredrik Johansson
+ * @author Mattias Edin
+ */
+public class ToClient extends TCP{
+	
+	private static int			threadCounter = 0;
+	private String				nick;
+	
+	/**
+	 * Constructor for class ToClient, extends TCP. Calls the super class
+	 * with received parameters.
+	 * @param socket The socket to witch the connection has been established.
+	 * @throws UnknownHostException Thrown to indicate that the IP address of a host could not be determined.
+	 * @throws IOException Signals that an I/O exception of some sort has occurred. This class is the general class of exceptions produced by failed or interrupted I/O operations.
+	 */
+	public ToClient(Socket socket) throws UnknownHostException, IOException{
+		super("Client thread " + threadCounter++, socket);
+	}
+	
+	/**
+	 * Overrides the abstract method receive of the class TCP. When the
+	 * TCP connection receives a package it sends it's content to
+	 * this this method. Depending on the OpCode contained in the package
+	 * this method executes different actions. 
+	 * @param bytes The received bytes.
+	 * @param bytesRead Number of bytes read.
+	 */
+	@Override
+	public void receive(byte[] bytes, int bytesRead){
+		PDU pdu = new PDU(bytes, bytesRead);
+		switch (pdu.getByte(0)) {
+		
+		/* OpCides.JOIN: Is received when a client wants to connect. It then
+		 * sends a message to all connected clients, informing them of the
+		 * action. */
+		case OpCodes.JOIN:
+			
+			String strUTF;
+			try {
+				strUTF = new String( pdu.getSubrange(4, pdu.getByte(1)), "UTF-8" );
+			} catch (UnsupportedEncodingException e1) {
+				strUTF = new String( pdu.getSubrange(4, pdu.getByte(1)));
+			}
+			String receivedNick = PDU_Factory.removeZeros( strUTF )[0];
+			this.nick = Server.INSTANCE.isNickOccupied(receivedNick);
+			
+			ArrayList<ToClient> clientList = Server.INSTANCE.getClientList();
+			
+			String[] arrayOfNicks = new String[clientList.size()+1];
+			arrayOfNicks[0] = this.nick;
+			
+			for(int i = 0; i < clientList.size(); i++){
+				arrayOfNicks[i+1] = clientList.get(i).getNick();
+			}
+			
+			Server.INSTANCE.clientListAdd(this);
+			sendPDU(PDU_Factory.nicks(arrayOfNicks) );
+			
+			Server.INSTANCE.sendPDUToAllClients(PDU_Factory.ujoin(this.nick, (int) System.currentTimeMillis()));
+			
+			break;
+		
+		/* OpCodes.WHOIS: Is received when a user want to know more about a specific
+		 * user. It then return a info-message to the client. */
+		case OpCodes.WHOIS:
+			try {
+				strUTF = new String( pdu.getSubrange(4, pdu.getByte(1)), "UTF-8");
+			} catch (UnsupportedEncodingException e1) {
+				strUTF = new String( pdu.getSubrange(4, pdu.getByte(1)));
+			}
+			String nick = PDU_Factory.removeZeros(strUTF)[0];
+			
+			ToClient c;
+			if( (c = Server.INSTANCE.getClient( nick ) ) != null ){
+				sendPDU(PDU_Factory.uinfo(c.getInetAddress(), (int) (System.currentTimeMillis()/1000) ));
+			}
+			
+			break;
+			
+		/* OpCodes.CHNICK: Is received when a user wants to change nick.
+		 * This case then returns a unique nickname to the sending client. */
+		case OpCodes.CHNICK:
+			try {
+				strUTF = new String(pdu.getSubrange(4, pdu.getByte(1)), "UTF-8");
+			} catch (UnsupportedEncodingException e1) {
+				strUTF = new String(pdu.getSubrange(4, pdu.getByte(1)));
+			}
+			String newNick = PDU_Factory.removeZeros( strUTF )[0];
+			String oldNick = this.nick;
+			this.nick = Server.INSTANCE.isNickOccupied(newNick);
+			
+			Server.INSTANCE.sendPDUToAllClients(PDU_Factory.ucnick(oldNick, this.nick, (int) System.currentTimeMillis()/1000));
+			break;
+			
+		/* OpCodes.CHTOPIC: Is received when a user want to change topic. */
+		case OpCodes.CHTOPIC:
+			
+			try {
+				strUTF = new String( pdu.getSubrange(4, pdu.getByte(1)), "UTF-8");
+			} catch (UnsupportedEncodingException e1) {
+				strUTF = new String( pdu.getSubrange(4, pdu.getByte(1)));
+			}
+			
+			String topic = PDU_Factory.removeZeros( strUTF )[0];
+			Server.INSTANCE.setTopic(topic);
+			Server.INSTANCE.sendPDUToAllClients(pdu);
+			pdu.setShort(2, Server.INSTANCE.getID());
+			Server.INSTANCE.sendPDUToDNS( pdu );
+			break;
+			
+		/* OpCodes.QUIT: Is received when a user want to disconnect. Then this case
+		 * sends a user left message to all other cloents. */
+		case OpCodes.QUIT:
+			Server.INSTANCE.clientListRemove(this);
+			Server.INSTANCE.sendPDUToAllClients(PDU_Factory.uleave(this.nick, (int) System.currentTimeMillis()/1000));
+			disconnect();
+			
+			break;
+			
+		/* OpCodes.MESSAGE: Is receive when a user send a message. */
+		case OpCodes.MESSAGE:
+			
+			//Controlls 
+			if ( PDU_Factory.checksum(pdu, 3) ) {
+				if((    pdu.getByte(1) == MsgTypes.TEXT 
+                     || pdu.getByte(1) == MsgTypes.COMP
+                     || pdu.getByte(1) == MsgTypes.CRYPT
+                     || pdu.getByte(1) == MsgTypes.COMPCRYPT )){
+
+					byte[] nickWithZeroes;
+					
+					try {
+						nickWithZeroes = PDU_Factory.appendZeros(this.nick).getBytes("UTF-8");
+					} catch (UnsupportedEncodingException e) {
+						nickWithZeroes = PDU_Factory.appendZeros(this.nick).getBytes();
+					}
+					
+					pdu.extendTo(pdu.length() + nickWithZeroes.length);
+					
+					pdu.setByte(2, (byte) this.nick.length());
+					pdu.setByte(3, (byte) '\0');
+					pdu.setInt(8, (int) System.currentTimeMillis()/1000);
+					pdu.setSubrange(12 + pdu.getShort(4), nickWithZeroes);
+					
+					pdu.setByte(3, Checksum.calc(pdu.getBytes(), pdu.length() ) );
+					Server.INSTANCE.sendPDUToAllClients(pdu);
+				}else{
+					Server.INSTANCE.println("MsgType of message received from client " + this.server_ip + ":" + this.server_port +"is not recognized");
+					disconnectTCP();
+				}
+				
+			} else {
+				Server.INSTANCE.println("Checksum missmatch from client " + this.server_ip + ":" + this.server_port);
+				disconnectTCP();
+			}
+			break;
+		}
+	}
+	
+	/**
+	 * Returns A string representation of this thread, including the thread's name, priority, and thread group.
+	 * @return A string representation of this thread.
+	 */
+	@Override
+	public String toString(){
+		return this.nick;
+	}	
+	
+	/** 
+	 * Overrides an abstract method of TCP. This method is invoked if
+	 * a client quits without a quit message.
+	 */
+	@Override
+	public void disconnectTCP(){
+		Server.INSTANCE.clientListRemove(this);
+		Server.INSTANCE.sendPDUToAllClients(PDU_Factory.uleave(this.nick, (int) System.currentTimeMillis()/1000));
+		this.disconnect();
+	}
+	
+	/** 
+	 * Overrides an abstract method of TCP. This method is invoked if
+	 * a client quits with a quit message, or when the server shuts down and
+	 * disconnects all clients.
+	 */
+	@Override
+	public void disconnect(){
+		super.stop = true;
+		try {
+			super.socket.close();
+		} catch (IOException e) {
+			//Catches the exception but does nothing.
+		}
+	}
+	
+	/**
+	 * Sends a PDU to the connected client through the class
+	 * TCP witch is using the TCP protocol.
+	 * @param pdu Package to send.
+	 */
+	public void sendPDU(PDU pdu){
+		try {
+			super.send(pdu.getBytes());
+		} catch (IOException e) {
+			disconnectTCP();
+		}
+	}
+	
+	/**
+	 * Getter for the current nick.
+	 * @return Current nick.
+	 */
+	public String getNick(){
+		return this.nick;
+	}
+
+}

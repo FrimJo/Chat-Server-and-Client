@@ -1,0 +1,60 @@
+package application;
+import java.sql.Time;
+import java.util.Scanner;
+
+public class GUI_Console_Server extends Thread implements GUI_Interface{	
+	
+	private Scanner	systemIn;
+	//private Server server TEST;
+	private static boolean exit = false;
+	private Time time;
+	
+	public GUI_Console_Server(){
+		super("GUI main thread");
+		this.time = new Time(System.currentTimeMillis());
+		
+	}
+	
+	@Override
+	public void start(){
+		super.start();
+	}
+	
+	@Override
+	public void print(String str) {
+		System.out.print(str);
+	}
+	
+	@Override
+	public void println(String str) {
+		this.time.setTime(System.currentTimeMillis());
+		System.out.println("(" + this.time.toString()+") " + str);
+	}
+
+	@Override
+	public String in() {
+		if(this.systemIn == null)
+			this.systemIn = new Scanner(System.in);
+		return this.systemIn.nextLine();
+	}
+	
+	@Override
+	public void run(){
+		String[] split;
+		while(!exit){
+			split = in().split(" ");
+			if( split[0].equals("quit") ){
+				println("System shutting down . . .");
+				break;
+			}else if( split[0].equals("chtopic") ){
+				String topic = split[1];
+				println("Chamge topic to: " + topic);
+				Server.INSTANCE.setTopic(topic);
+			}else{
+				println("Command '"+ split[0] +"' not recognized.");
+			}
+		}
+		Server.INSTANCE.shutDown();
+		println("GUI Closed");
+	}
+}

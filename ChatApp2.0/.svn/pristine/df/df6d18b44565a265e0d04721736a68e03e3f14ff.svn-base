@@ -1,0 +1,61 @@
+package application;
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+
+
+public abstract class UDP extends Thread{
+	
+	protected Boolean				stop = new Boolean(false);
+	protected DatagramSocket		socket;
+	
+	private String					server_ip;
+	private int						server_port;
+	
+	
+	public UDP(String thread_name, String server_ip, int server_port) throws UnknownHostException, SocketException{
+		super(thread_name);
+		this.server_ip = server_ip;
+		this.server_port = server_port;
+		
+		this.socket = new DatagramSocket();
+		start();	
+	}
+	
+	@Override
+	public void run(){
+		byte[] buffer = new byte[1024];
+		DatagramPacket receivePacket = new DatagramPacket(buffer, buffer.length);
+		while(!stop){
+			try {
+				this.socket.receive(receivePacket);
+				try{
+					receive(buffer);
+				} catch (IOException e) {
+					System.err.println("ERROR UDP FFS!!");
+	
+				}
+			} catch (SocketException e) {
+				disconnect();
+			} catch (IOException e) {
+				//Catches the IOException but keeps the thread running.
+			}
+			
+		}
+		System.out.println("UDP disconnected.");
+	}
+	
+	public abstract void receive(byte[] bytes) throws IOException;
+	
+	public void sendPDU(PDU pdu) throws IOException{
+		this.socket.send(new DatagramPacket(pdu.getBytes(), pdu.getBytes().length, InetAddress.getByName(this.server_ip), this.server_port));
+	}
+	
+	public void disconnect(){
+		this.stop = true;
+		this.socket.close();
+	}
+}

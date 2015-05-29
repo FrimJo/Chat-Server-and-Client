@@ -1,0 +1,27 @@
+package application;
+import java.net.InetAddress;
+
+
+public class ServerInfo {
+	private InetAddress server_ip;
+	private int			server_port;
+	private int			nr_clients;
+	private String		topic;
+	
+	public ServerInfo(InetAddress server_ip, int server_port, int nr_clients, String topic){
+		this.server_ip = server_ip;
+		this.server_port = server_port;
+		this.nr_clients = nr_clients;
+		this.topic = topic;
+	}
+	
+	public InetAddress getInetAddress(){ return this.server_ip; }
+	public int getServerPort(){ return this.server_port; }
+	public int getNrClients(){ return this.nr_clients; }
+	public String getTopic(){ return this.topic; }
+	
+	@Override
+	public String toString(){
+		return this.topic;
+	}
+}

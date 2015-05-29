@@ -1,0 +1,14 @@
+package application;
+
+public class WrongCryptTypeException extends Exception{
+	
+	private static final long serialVersionUID = 3572705553528089291L;
+
+	public WrongCryptTypeException(){
+		super();
+	}
+	
+	public WrongCryptTypeException(String message){
+		super(message);
+	}
+}

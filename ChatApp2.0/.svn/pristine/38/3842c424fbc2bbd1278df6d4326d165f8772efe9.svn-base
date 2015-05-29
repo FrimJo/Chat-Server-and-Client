@@ -1,0 +1,19 @@
+package application;
+import java.util.ArrayList;
+
+
+public interface GUI_Interface_Client{
+
+	public abstract void print(String str);
+	
+	public abstract void println(String str);
+	
+	public abstract String in(String str);
+	
+	public abstract void start();
+	
+	public abstract void receiveListOfServers(ArrayList<ServerInfo> serverList);
+	
+	public abstract void receiveListOfNicks(String[] nickList);
+	
+}

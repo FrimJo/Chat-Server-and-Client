@@ -1,0 +1,553 @@
+package application;
+
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.fxml.FXML;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.Button;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
+import javafx.scene.control.CheckBox;
+
+import java.io.IOException;
+import java.net.SocketException;
+import java.net.URL;
+import java.net.UnknownHostException;
+import java.sql.Time;
+import java.util.ResourceBundle;
+
+/**
+ * This is the GUI used with the client part of the chat. It implements
+ * GUI_Interface_Client class witch makes it compatible with the Client class
+ * The overridden methods is used by the Client class to controll the GUI.
+ * @author Fredrik Johansson
+ * @author Matias Edin
+ */
+public class Client_GUI implements GUI_Interface_Client{
+	private Time						time;
+	private ToServer					connectedServer;
+	
+    @FXML private ResourceBundle		resources;
+    @FXML private URL					location;
+    @FXML private ContextMenu 			nickViewContext;
+    @FXML private MenuItem 				contextWho;
+    @FXML private Button 				exitButton;
+    @FXML private Button 				updateButton;
+    @FXML private Button				disconnectButton;
+    @FXML private Button				connectButton;
+    @FXML private Button				enterButton;
+    @FXML private ListView<ToServer>	ServerView;
+    @FXML private ListView<User> 		nickView;
+    @FXML private TextField				nickField;
+    @FXML private TextField				inputField;
+    @FXML private TextField				topicField;
+    @FXML private TextField 			cryptField;
+    @FXML private TextArea				outputArea;
+    @FXML private CheckBox				zipCheckBox;
+    @FXML private Label					topicLabel;
+    
+    /**
+     * When the disconnect button is pressed the Client disconnect from the current server.
+     */
+    @FXML
+    void disconnectPressed(){
+    	if(this.connectedServer != null){
+    		try {
+				String server_ip = this.connectedServer.getInetAddress().getHostAddress();
+				int server_port = this.connectedServer.getPort();
+				int nr_clients = this.connectedServer.getNrClients();
+				ToServer newServer = new ToServer(server_ip, server_port, this.topicField.getText(), nr_clients);
+				
+				int indexOfOldServer = this.ServerView.getItems().indexOf(connectedServer);
+				this.ServerView.getItems().set(indexOfOldServer, newServer);
+				
+				Client.INSTANCE.disconnectFromServer(this.connectedServer);
+			} catch (IOException e) {
+				//Catches the Exception but dosn't do any thing.
+			}
+		}
+    	disableGUI();
+    }
+    
+    /**
+     * When the connect button is pressed the Client will attempt to connect to the 
+     * highlighted item from the serverView.
+     */
+    @FXML
+    void connectPressed() {
+    	if(!this.nickField.getText().equals("")){
+    		ToServer selected = this.ServerView.getSelectionModel().getSelectedItem();
+    		if(selected != null){
+	        	try {
+	        		println("Connect to server at " + selected.server_ip + ":" + selected.server_port);
+	        		/*
+	        		new Thread(){
+	        			@Override
+	        			public void run(){*/
+	        				
+	        			/*}
+	        		};*/
+	        		Client.INSTANCE.connectToServer(selected, this.nickField.getText());
+	    			enableGUI(selected);
+	    			this.topicLabel.setText(this.connectedServer.getTopic());
+	        	} catch (UnknownHostException e) {
+	        		println("Couldn't connect to server, unknown host.");
+	    		} catch (IOException e) {
+	    			println("Couldn't connect to server. Server may be full.");
+	    		}
+        	}else{
+        		println("Can't connect, please select a server.");
+        	}
+    	}else{
+    		println("Can't connect, please enter a nickname.");
+    	}
+    }
+    
+    /**
+     * When the user right clicks on a user the client will request information about that user.
+     */
+    @FXML
+    void whoClicked() {
+    	ToServer selected = this.connectedServer;
+    	User user = this.nickView.getSelectionModel().getSelectedItem();
+    	try {
+			Client.INSTANCE.getUserInfo(user, selected);
+		} catch (SocketException e) {
+			println("User hans't connected, need to connect to server first to get Who-information.");
+		} catch (IOException e) {
+			println("Couldn't get Who-information.");
+		}
+    }
+    
+    /**
+     * When the exit button is pressed the client will disconnect from the server
+     * and close the program.
+     */
+    @FXML
+    void exitPressed() {
+    	try {
+    		println("Trying to shutdown");
+    		Client.INSTANCE.shutDown(this.ServerView.getItems());
+		} catch (IOException e) {
+			println("Couldn't shutdown.");
+		}
+    	Platform.exit();
+    }
+    
+    /**
+     * When the update button  is pressed the client will request a new server list from
+     * the DNS
+     */
+    @FXML
+    void updatePressed(){
+    	Client.INSTANCE.getListOfServers();
+    }
+    
+    /**
+     * When the user hits the enter key the inputEnter method is initialized.
+     */
+    @FXML
+    void enterPressed() {
+    	inputEnter();
+    }
+    
+    /**
+     * If the user hits enter key when typing in the nickField the client will
+     * Attempt to change the nickname to the new.
+     */
+    @FXML
+    void nickEnter() {
+    	if(this.connectedServer != null){
+	    	try {
+				Client.INSTANCE.changeNick(this.nickField.getText(), this.connectedServer);
+				
+	    	} catch (SocketException e) {
+				println("Need to connect to server first to change Nick.");
+			} catch (IOException e) {
+				println("Couldn't change nickname.");
+			}
+    	} else {
+			connectPressed();
+		} 
+    }
+    
+    /**
+     * When the user hits the enter key when typing in the inputField the client will
+     * attempt to send that text to the server. If the user typed "connect" first and then [ip]:[port]
+     * the Client will try to connect to that server. 
+     */
+    @FXML
+    void inputEnter() {
+    	String command = this.inputField.getText();
+    	String[] strFirst = command.split(" ", 2);
+    	
+    	cryptEnter();
+    	
+		if( strFirst[0].equals("connect") ){
+			String ipAndPort = command.split(" ", 2)[1];
+			String[] strSecond = ipAndPort.split(":", 2);
+			if(strSecond.length == 2){
+				String server_ip = strSecond[0];
+				
+				try {
+					int server_port = Integer.parseInt( strSecond[1] );
+					println("Trying to connect to server at " + server_ip + ":" + server_port);
+					
+					ToServer server = new ToServer(server_ip, server_port, this.connectedServer.getTopic(), 0); 
+					addServer(server);
+					
+					Client.INSTANCE.connectToServer(server, this.nickField.getText());
+					
+				} catch (NumberFormatException e){
+					println("Wrong input parameter: connect connect server_ip:port");
+				} catch (UnknownHostException e) {
+					println("Couldn't add server. UnknownHostException");
+				} catch (IOException e) {
+					println("Couldn't add server. IOException");
+				}	
+			}else{
+				println("Wrong input parameter: connect server_ip:port");
+			}
+		}else{
+			sendMessage(command);
+			println("Send message!");
+		}
+		this.inputField.clear();
+    }
+    
+    /**
+     * If the user hits enter key when typing in the topicField the client will
+     * Attempt to change the topic to the new.
+     */ 
+    @FXML
+    void topicEnter() {
+    	if( this.connectedServer !=  null){
+    		try {
+				Client.INSTANCE.setTopic(this.topicField.getText(), this.connectedServer);
+    		} catch (SocketException e) {
+				println("User hans't join, need to join server first to change Topic.");
+    		} catch (IOException e) {
+				println("Couldn't set Topic.");
+			}
+    	}else{
+    		println("Please connect to a server.");
+    	}
+    }
+    
+    /**
+     * If the user hits enter key when typing in the cryptField the client will
+     * Attempt to change the encryption key to the new.
+     */ 
+    @FXML
+    void cryptEnter() {
+    	if( this.connectedServer !=  null){
+    		String cryptKey = this.cryptField.getText();
+    		Client.INSTANCE.setCryptKey(cryptKey, this.connectedServer);
+    	}
+    	
+    }
+    
+    /**
+     * when the user highlights a item in the serverList information from that server will get displayed
+     */
+    @FXML
+    void serverListClicked() {
+    	ToServer selected;
+    	if( ( selected = this.ServerView.getSelectionModel().getSelectedItem() ) != null){
+    		this.topicField.setText(Client.INSTANCE.getTopic(selected));
+			this.cryptField.setText(Client.INSTANCE.getCryptKey(selected));
+    	}
+    }
+    
+	/**
+	 * This is the initialize method, it creates a graphical user interface.
+	 */
+    @FXML
+    void initialize() {
+    	assert ServerView 		!= null : "fx:id=\"ServerView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert contextWho 		!= null : "fx:id=\"contextWho\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert cryptField 		!= null : "fx:id=\"cryptField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert enterButton 		!= null : "fx:id=\"enterButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert exitButton 		!= null : "fx:id=\"exitButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert inputField 		!= null : "fx:id=\"inputField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickField 		!= null : "fx:id=\"nickField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickView 		!= null : "fx:id=\"nickView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickViewContext 	!= null : "fx:id=\"nickViewContext\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert outputArea 		!= null : "fx:id=\"outputArea\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert topicField 		!= null : "fx:id=\"topicField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert updateButton 	!= null : "fx:id=\"updateButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert zipCheckBox 		!= null : "fx:id=\"zipCheckBox\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert connectButton 	!= null : "fx:id=\"connectButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert disconnectButton != null : "fx:id=\"disconnectButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert topicLabel		!= null : "fx:id=\"topicLabel\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+
+        this.time = new Time(System.currentTimeMillis());
+        
+        ObservableList<ToServer> serverData = FXCollections.observableArrayList();
+        this.ServerView.setItems(serverData);
+        
+        ObservableList<User> userData = FXCollections.observableArrayList();
+        this.nickView.setItems(userData);
+        
+        Client.INSTANCE.init(this);
+    }
+
+    /**
+     * Displays text in the outputArea.
+     * @param str
+     */
+	@Override
+	public void print(String str) {
+		this.outputArea.appendText(str);
+	}
+
+    /**
+     * Displays text in the outputArea as a line.
+     * @param str
+     */
+	@Override
+	public void println(String str) {
+		print(str +'\n');
+	}
+	
+	/**
+	 * Displays text in the outputArea as a line with the time stamp.
+	 * @param timestamp Time in milliseconds.
+	 * @param str String of text.
+	 */
+	@Override
+	public void println(int timeStamp, String str){
+		this.time.setTime((long) (timeStamp*1000));
+		print("(" +  this.time.toString()+ ") " + str +'\n');
+	}
+	
+	/**
+	 * Forwarding the text to the Client so that it can send it to the server with the required information.
+	 * @param text String that is going to be sent to the server.
+	 */
+	private void sendMessage(String text){
+		cryptEnter();
+		
+		boolean isSelected = this.zipCheckBox.isSelected();
+		int type = MsgTypes.TEXT;
+		String cryptKey = this.cryptField.getText();
+		if( isSelected && !cryptKey.equals("") ){
+			type = MsgTypes.COMPCRYPT;
+		}else if( isSelected && cryptKey.equals("") ){
+			type = MsgTypes.COMP;
+		}else if(!isSelected && !cryptKey.equals("") ){
+			type = MsgTypes.CRYPT;
+		}
+		
+		try {
+			if(this.connectedServer != null){
+				Client.INSTANCE.sendMessage(this.connectedServer, type, text);
+			}else{
+				println("Pleas select a server.");
+			}
+			
+		} catch (SocketException e1) {
+			println("SocketException.");
+		} catch (WrongCryptTypeException e2) {
+			println("WrongCryptTypeException.");
+		} catch (IOException e3) {
+			println("IOException.");
+		}
+	}
+
+	/**
+	 * Adds server to the server list.
+	 * @param server
+	 */
+	@Override
+	public void addServer(ToServer server) {
+		this.ServerView.getItems().add(server);
+		this.updateServer();
+	}
+
+	/**
+	 * Removes server from the server list.
+	 * @param server
+	 */
+	@Override
+	public void removeServer(ToServer server) {
+		this.ServerView.getItems().remove(server);
+	}
+	
+	/**
+	 * Refreshes server list.
+	 */
+	private void updateServer() {
+		ObservableList<ToServer> items = this.ServerView.getItems();
+		this.ServerView.setItems(null);
+		this.ServerView.setItems(items);
+	}
+	
+	/**
+	 * Updates a specific server with new information.
+	 * @param newServer New server information
+ 	 * @param oldServer old server that is going to be updated.
+	 */
+	@Override
+	public void replaceServer(ToServer newServer, ToServer oldServer) {
+		ObservableList<ToServer> items = this.ServerView.getItems();
+		if(items.contains(oldServer)){
+			int index = items.indexOf(oldServer);
+			items.remove(oldServer);
+			items.add(index, newServer);
+		}
+	}
+	
+	/**
+	 * Clears the server list
+	 */
+	@Override
+	public void clearServers(){
+		this.ServerView.getItems().clear();
+	}
+
+	/**
+	 * Adds user to the user list.
+	 * @param user
+	 */
+	@Override
+	public void addUser(User user) {
+		this.nickView.getItems().add(user);
+		updateServer();
+	}
+	
+	/**
+	 * Removes user from the user list.
+	 * @param user
+	 */
+	@Override
+	public void removeUser(User user){
+		this.nickView.getItems().remove(user);
+		updateServer();
+		updateUser();
+	}
+	
+	/**
+	 * Updates the list of connected users.
+	 */
+	private void updateUser(){
+		ObservableList<User> items = this.nickView.getItems();
+		this.nickView.setItems(null);
+		this.nickView.setItems(items);
+	}
+	
+	/**
+	 * Replace a specific user with new information.
+	 * @param newUser New user information
+ 	 * @param oldUser old user that is going to be replaced.
+	 */
+	@Override
+	public void replaceUser(User newUser, User oldUser){
+		if(oldUser.getNick().equals(this.nickField.getText())){
+			this.nickField.setText(newUser.getNick());
+		}
+		
+		ObservableList<User> items = this.nickView.getItems();
+		if(items.contains(oldUser)){
+			int index = items.indexOf(oldUser);
+			println("Found " + oldUser + "at index " + index);
+			items.remove(index);
+			println("Removed " + oldUser + " from from items at index " + index);
+			items.add(index, newUser);
+			println("Added " + newUser + " at index: " + index);
+			this.nickView.setItems(items);
+		}else{
+			println("List didn't contain oldUser: " + oldUser);
+		}
+	}
+	
+	/**
+	 * Clear the user list
+	 */
+	@Override
+	public void clearUsers(){
+		this.nickView.getItems().clear();
+	}
+	
+	/**
+	 * Sets new topic
+	 * @param topic
+	 */
+	@Override
+	public void setTopic(String topic) {
+		this.topicField.setText(topic);
+		this.topicLabel.setText(topic);
+		updateServer();
+		println("Topic changed to: " + topic);
+	}
+	
+	/**
+	 * Gets the current topic
+	 * @return topic in form of String
+	 */
+	@Override
+	public String getTopic() {
+		return this.topicField.getText();
+	}
+	
+	/**
+	 * Sets the nickname to a new. 
+	 */
+	@Override
+	public void setNick(String nick){
+		this.nickField.setText(nick);
+	}
+	
+	/**
+	 * Gets the current nickname
+	 */
+	@Override
+	public String getNick(){
+		return this.nickField.getText(); 
+	}
+	
+	/**
+	 * Sets the GUI to server selection mode, used for when the client is not
+	 * connected to a server.
+	 */
+	public void disableGUI(){
+		this.topicField.setDisable(true);
+		this.cryptField.setDisable(true);
+		this.zipCheckBox.setDisable(true);
+		this.ServerView.setDisable(false);
+		this.nickView.setDisable(true);
+		this.outputArea.setDisable(true);
+		this.outputArea.clear();
+		this.inputField.setDisable(true);
+		this.enterButton.setDisable(true);
+		this.connectButton.setVisible(true);
+		this.disconnectButton.setVisible(false);
+		this.connectedServer = null;
+		this.nickView.getItems().clear();
+	}
+	
+	/**
+	 * Sets the GUI to chat mode, used when the Client is connected
+	 * to a server.
+	 * @param selected The server that is the connected one.
+	 */
+	public void enableGUI(ToServer selected){
+		this.topicField.setDisable(false);
+		this.cryptField.setDisable(false);
+		this.zipCheckBox.setDisable(false);
+		this.ServerView.setDisable(true);
+		this.nickView.setDisable(false);
+		this.outputArea.setDisable(false);
+		this.outputArea.clear();
+		this.inputField.setDisable(false);
+		this.enterButton.setDisable(false);
+		this.connectedServer = selected;
+		this.connectButton.setVisible(false);
+		this.disconnectButton.setVisible(true);
+	}
+}
+

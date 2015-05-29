@@ -1,0 +1,15 @@
+package application;
+
+public class IsNotJoinedException extends Exception{
+	
+	private static final long serialVersionUID = -6521474993326175016L;
+
+	public IsNotJoinedException(){
+		super();
+	}
+	
+	public IsNotJoinedException(String message){
+		super(message);
+	}
+	
+}

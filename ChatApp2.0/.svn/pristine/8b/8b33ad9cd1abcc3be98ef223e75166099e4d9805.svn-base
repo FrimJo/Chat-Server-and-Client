@@ -1,0 +1,104 @@
+package application;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Scanner;
+
+public class GUI_Console_Client extends Thread implements GUI_Interface_Client{
+	
+	private Scanner			systemIn;
+	private static boolean	exit = false;
+	private final String	NICK = "Kurt";
+	
+	public GUI_Console_Client(){
+		super("GUI main thread");
+	}
+	
+	@Override
+	public void print(String str) {
+		System.out.print(str);
+	}
+	
+	@Override
+	public void println(String str) {
+		System.out.println(str);
+	}
+	
+	@Override
+	public String in(String str) {
+		if(this.systemIn == null)
+			this.systemIn = new Scanner(System.in);
+		System.out.println(str);
+		try{
+			return this.systemIn.nextLine();	
+		}catch (IllegalStateException e){
+			return "";
+		}
+		
+	}
+	
+	public void shutDown(){
+		println("System shutting down . . .");
+		try {
+			Client.INSTANCE.shutDown();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		exit = true;
+		this.systemIn.close();
+	}
+	
+	public void receiveListOfServers(ArrayList<ServerInfo> serverList){
+		for(ServerInfo s : serverList){
+			System.out.println(s.getTopic());
+		}
+	}
+	
+	@Override
+	public void start(){
+		super.start();
+	}
+	
+	@Override
+	public void run(){
+		System.out.print("GUI Thread started\n");
+
+		String command;
+		while(!exit){
+			command = in("\nEnter command: ");
+			if( command.equals("quit") ){
+				shutDown();
+			}else if( command.split(" ", 2)[0].equals("chnick") ){
+				Client.INSTANCE.changeNick(command.split(" ",2)[1], 0);
+			}else if( command.split(" ", 2)[0].equals("chtopic") ){
+				Client.INSTANCE.changeTopic(command.split(" ",2)[1], 0);
+			}else if( command.equals("list") ){
+				Client.INSTANCE.getListOfServers();	
+			}else if( command.split(" ", 2)[0].equals("whois") ){
+				Client.INSTANCE.getUserInfo(command.split(" ",2)[1], 0);	
+			}else if( command.split(" ", 2)[0].equals("connect") ){
+				println("Connect!");
+				String ipAndPort = command.split(" ", 2)[1];
+				String server_ip = ipAndPort.split(":", 2)[0];
+				int server_port = Integer.parseInt( ipAndPort.split(":", 2)[1] );
+				
+				try {
+					Client.INSTANCE.connectToServer(server_ip, server_port, NICK);
+					println("Connected to server at:" + server_ip + ":" + server_port);
+				} catch (IOException e) {
+					println("Couldn't connect to server.");
+					
+				}
+				
+				
+			}
+			
+		}
+		println("GUI Thread ended\n");
+	}
+
+	@Override
+	public void receiveListOfNicks(String[] nickList) {
+		// TODO Auto-generated method stub
+		
+	}
+}

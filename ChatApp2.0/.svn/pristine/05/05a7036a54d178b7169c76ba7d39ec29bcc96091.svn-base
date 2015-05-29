@@ -1,0 +1,600 @@
+package application;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
+
+
+public class PDU_Factory {
+	
+	/**
+	 * Creates a register PDU
+	 * Server -> DNS
+	 * @param dns_address IP-address for the DNS
+	 * @param dns_port Port number for the DNS
+	 * @param topic Chosen topic of server
+	 * @return Finished register PDU
+	 */
+	
+	public static PDU reg(InetAddress dns_address, int dns_port, String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		PDU message = new PDU(8 + topic.length());
+		message.setByte(0, (byte) OpCodes.REG);
+		message.setByte(1, (byte) length);
+		message.setShort(2, (short) dns_port);
+		message.setSubrange(4, dns_address.getAddress());
+		message.setSubrange(8, topic.getBytes());
+		
+		return message;
+	}
+	
+	/**
+	 * Creates alive PDU.
+	 * Server -> DNS
+	 * this PDU is used to inform 
+	 * the DNS that the server is still up and running.
+	 * @param id Unique number of the server, recived by the DNS. 
+	 * @param nrOfClients Number of connected clients.
+	 * @return Alive PDU
+	 */
+	public static PDU alive(int id, int nrOfClients) {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.ALIVE);
+		message.setByte(1, (byte) nrOfClients);
+		message.setShort(2, (short) id);
+		
+		return message;
+	}
+	
+	/**
+	 * Creates a chtopic PDUS 
+	 * Client -> Server
+	 * Used for changing the topic and informing 
+	 * the other clients.
+	 * @param topic Preferred topic.
+	 * @return chtopic PDU.
+	 */
+	public static PDU chtopic(String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		
+		PDU message = new PDU(4 + topic.length());
+		
+		message.setByte(0, (byte) OpCodes.CHTOPIC);
+		message.setByte(1, (byte) length);
+		message.setSubrange(2, new byte[]{'\0','\0'} );
+		try {
+			message.setSubrange(4, topic.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(4, topic.getBytes());
+		}
+		return message;
+	}
+	
+	/**
+	 * Creates chtopic PDU
+	 * Server -> DNS
+	 * Used by the server to inform the DNS
+	 * of the new topic.
+	 * @param id Unique number of the server, received by the DNS. 
+	 * @param topic Preferred topic.
+	 * @return chtopic PDU.
+	 */
+	public static PDU chtopic(int id, String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		
+		PDU message = new PDU(4 + topic.length());
+		
+		message.setByte(0, (byte) OpCodes.CHTOPIC);
+		message.setByte(1, (byte) length);
+		message.setShort(2, (short) id );
+		try {
+			message.setSubrange(4, topic.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(4, topic.getBytes());
+		}
+
+		return message;
+	}
+	
+	/**
+	 * Creates getlist PDU
+	 * client -> DNS
+	 * Used for requesting a list of active servers by the DNS.
+	 * @return getlist PDU
+	 */
+	public static PDU getlist() {
+		
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.GETLIST);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+	
+	/**
+	 * Creates message PDU
+	 * Client <-> Server
+	 * Used for transferring a string of text
+	 * @param msgType Type of message, check MsgTypes class for available types.
+	 * @param text Message in form of a string.
+	 * @param cryptKey Encryption key.
+	 * @return message PDU
+	 * @throws WrongCryptTypeException If the encryption key is unsupported.
+	 * @throws UnsupportedEncodingException If the named charset is not supported
+	 * @throws IOException If an I/O error has occurred.
+	 */
+	public static PDU message(int msgType, String text, byte[] cryptKey) throws WrongCryptTypeException, UnsupportedEncodingException, IOException{
+		System.out.println("\nGenerate package MESSAGE");
+		
+		byte[] message;
+		
+		switch (msgType) {
+		case MsgTypes.TEXT:
+			System.out.println("MsgTypes.TEXT");
+			text = appendZeros(text);
+			message = text.getBytes("UTF-8");
+			break;
+			
+		case MsgTypes.COMP:
+			System.out.println("MsgTypes.COMP");
+			byte[] compByte = compress(text);
+			byte[] compByteWithZeroes = appendZeros(compByte);
+			
+			System.out.println("Generating COMP MESSAGE");
+			PDU compPDU = new PDU(8 + compByteWithZeroes.length);
+			compPDU.setByte(0, (byte) 0);
+			compPDU.setByte(1, (byte) '\0');
+			compPDU.setShort(2, (short) compByte.length);
+			compPDU.setShort(4, (short) text.length());
+			compPDU.setSubrange(6, new byte[] {'\0', '\0'});
+			compPDU.setSubrange(8, compByteWithZeroes);											//Set the compromised text in byteArray with appended zeroes to slot 8 in compPDU.
+			compPDU.setByte(1, Checksum.calc(compPDU.getBytes(), compPDU.length()));			//Calculate the checksum of the whole compPDU and add it to slot 1.
+			message = compPDU.getBytes();
+			break;
+			
+		case MsgTypes.CRYPT:
+			System.out.println("MsgTypes.CRYPT");
+			byte[] cryptByte = text.getBytes("UTF-8");
+			Crypt.encrypt(cryptByte, cryptByte.length, cryptKey, cryptKey.length);				//Encrypt text in byteArray without added zeroes
+			byte[] cryptByteWithZeroes = appendZeros(cryptByte);									//Append zeroes to the crypted byteArray
+			
+			System.out.println("Generating CRYPT MESSAGE");
+			PDU cryptPDU = new PDU(8 + cryptByteWithZeroes.length);
+			cryptPDU.setByte(0, (byte) 0);
+			cryptPDU.setByte(1, (byte) '\0');
+			cryptPDU.setShort(2, (short) cryptByte.length);
+			cryptPDU.setShort(4, (short) text.length());
+			cryptPDU.setSubrange(6, new byte[] {'\0', '\0'});
+			cryptPDU.setSubrange(8, cryptByteWithZeroes);													//Set the crypted byteArray with appedned zeroes to slot 8 in cryptPDU
+			cryptPDU.setByte(1, Checksum.calc(cryptPDU.getBytes(), cryptPDU.length()));				//Calculate the checksum of the whole cryptPDU and add it to slot 1.
+			
+			message = cryptPDU.getBytes();
+			
+			break;
+			
+		case MsgTypes.COMPCRYPT:
+			System.out.println("MsgTypes.COMPCRYPT");
+			byte[] compByte2 = compress(text);
+			byte[] compByteWithZeroes2 = appendZeros(compByte2);
+			PDU compPDU2 = new PDU(8 + compByteWithZeroes2.length);
+			compPDU2.setByte(0, (byte) 0);
+			compPDU2.setByte(1, (byte) '\0');
+			compPDU2.setShort(2, (short) compByte2.length);
+			compPDU2.setShort(4, (short) text.length());
+			compPDU2.setSubrange(6, new byte[] {'\0', '\0'});
+			compPDU2.setSubrange(8, compByteWithZeroes2);
+			
+			byte checksum = Checksum.calc(compPDU2.getBytes(), compPDU2.length());
+			compPDU2.setByte(1, checksum);
+			
+			
+			byte[] cryptCompByte = compPDU2.getBytes();
+			int compByteLength = cryptCompByte.length;
+			Crypt.encrypt(cryptCompByte, compByteLength, cryptKey, cryptKey.length);
+			
+			byte[] cryptCompByteWithZeroes = appendZeros(cryptCompByte);
+			
+			PDU cryptCompPDU = new PDU(8 + cryptCompByteWithZeroes.length);
+			cryptCompPDU.setByte(0, (byte) 0);
+			cryptCompPDU.setByte(1, (byte) '\0');
+			cryptCompPDU.setShort(2, (short) cryptCompByte.length);
+			cryptCompPDU.setShort(4, (short) compByteLength);
+			cryptCompPDU.setSubrange(6, new byte[] {'\0', '\0'});
+			cryptCompPDU.setSubrange(8, cryptCompByteWithZeroes);
+			
+			checksum = Checksum.calc(cryptCompPDU.getBytes(), cryptCompPDU.length());
+			cryptCompPDU.setByte(1, checksum);
+			
+			message = cryptCompPDU.getBytes();
+			break;
+			
+		default:
+			throw new WrongCryptTypeException();
+			
+		}
+		
+		
+		PDU pdu = new PDU(12 + message.length);
+		pdu.setByte(0, (byte) OpCodes.MESSAGE);
+		pdu.setByte(1, (byte) msgType);
+		pdu.setByte(2, (byte) '\0');
+		pdu.setByte(3, (byte) '\0' );
+		pdu.setShort(4, (short) message.length);
+		pdu.setSubrange(6, new byte[] {'\0', '\0'});
+		pdu.setSubrange(8, new byte[] {'\0', '\0', '\0', '\0'});
+		pdu.setSubrange(12, message);
+		pdu.setByte(3, Checksum.calc(pdu.getBytes(), pdu.length()));
+
+		return pdu;
+	}
+	
+	/**
+	 * Compresses a string in to raw data as an array in GZIP format
+	 * @param str Text that is going to compress.
+	 * @return Compressed string in form of raw data array
+	 * @throws UnsupportedEncodingException If the named charset is not supported
+	 * @throws IOException If an I/O error has occurred.
+	 */
+	public static byte[] compress(String str) throws UnsupportedEncodingException, IOException {
+        if (str == null || str.length() == 0) {
+            return null;
+        }
+        
+        ByteArrayOutputStream obj=new ByteArrayOutputStream();
+    	GZIPOutputStream gzip = new GZIPOutputStream(obj);
+		gzip.write(str.getBytes("UTF-8"));
+		gzip.close();
+        return obj.toByteArray();
+     }
+
+	/**
+	 * Decompresses an byte array in GZIP format to a string.
+	 * @param bytes Array of bytes in GZIP format.
+	 * @return Decompressed string.
+	 * @throws IOException If an I/O error has occurred
+	 */
+      public static String deCompress(byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        
+        GZIPInputStream gis;
+		gis = new GZIPInputStream(new ByteArrayInputStream(bytes));
+        BufferedReader bf = new BufferedReader(new InputStreamReader(gis, "UTF-8"));
+        String outStr = "";
+        String line;
+        
+        while ((line=bf.readLine())!=null) {
+          outStr += line;
+        }
+
+        return outStr;
+     }
+	
+	/**
+	 * Calculates a new checksum of a PDU and compares it to 
+	 * the existing checksum in the PDU.
+	 * @param pdu The PDU that is going to be checked.
+	 * @param index The position in the PDU of were the existing checksum is.
+	 * @return Whatever if the checksum matches.
+	 */
+	public static boolean checksum(PDU pdu, int index){
+		byte orgChecksum = (byte) pdu.getByte(index);
+		pdu.setByte(index, (byte) '\0');
+		byte newChecksum = Checksum.calc(pdu.getBytes(), pdu.length() );
+		pdu.setByte(index, (byte) orgChecksum);
+		return orgChecksum == newChecksum;	
+	}
+
+	/**
+	 * Creates quit PDU
+	 * Client -> Server
+	 * Used disconnecting from the server.
+	 * @return quit PDU
+	 */
+	public static PDU quit() {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.QUIT);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+
+	/**
+	 * Creates join PDU
+	 * Client -> Server
+	 * Used for connecting to a server.
+	 * @param nick Preferred name.
+	 * @return join PDU
+	 */
+	public static PDU join(String nick) {
+		int nickLenght = nick.length(); 
+		nick = appendZeros(nick);
+
+		/* Generate a PDU-message to use when
+		 * connecting  to the server. */
+		PDU message = new PDU(4 + nick.length());
+		message.setByte(0, (byte) OpCodes.JOIN);
+		message.setByte(1, (byte) nickLenght);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		try {
+			message.setSubrange(4, nick.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(4, nick.getBytes());
+		}
+		return message;
+	}
+	
+	/**
+	 * Creates nicks PDU
+	 * Server -> Client
+	 * @param strArray Array of nicknames.
+	 * @return nicks PDU
+	 */
+	public static PDU nicks(String[] strArray) {
+
+		String str = appendZeros(strArray);
+
+		PDU message = new PDU(4 + str.length());
+		message.setByte(0, (byte) OpCodes.NICKS);
+		message.setByte(1, (byte) strArray.length);
+		message.setShort(2, (short) str.length());
+		try {
+			message.setSubrange(4, str.getBytes("UTF-8") );
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(4, str.getBytes() );
+		}
+		return message;
+	}
+	
+	/**
+	 * Creates whois PDU
+	 * Client -> Server
+	 * Used for requesting more information about a specific user.
+	 * @param str Name of the user
+	 * @return whois PDU
+	 */
+	public static PDU whois(String str) {
+		str = appendZeros(str);
+		
+		PDU message = new PDU(4 + str.length());
+		message.setByte(0, (byte) OpCodes.WHOIS);
+		message.setByte(1, (byte) str.length());
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		try {
+			message.setSubrange(4, str.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(4, str.getBytes());
+		}
+
+		return message;
+	}
+	
+	/**
+	 * Creates uinfo PDU
+	 * Server -> Client
+	 * Used for sending information about a specific client.
+	 * @param c Information in form of ToClient
+	 * @return uinfo PDU
+	 */
+	public static PDU uinfo(InetAddress ip, int timestamp) {
+	
+		/* Generate the PDU-message User Info. */
+		PDU message = new PDU(16);
+		message.setByte(0, (byte) OpCodes.UINFO);
+		message.setSubrange(1, new byte[]{'\0','\0','\0'});
+		message.setSubrange(4, ip.getAddress());
+		message.setInt(8, timestamp);
+		
+		return message;
+	}
+	
+	/**
+	 * Creates ujoin PDU
+	 * Server -> Client
+	 * Used for informing all Clients that a new Client has connected.
+	 * @param nick Name of the newly joined Client.
+	 * @param timeStamp The time the Client joined the server.
+	 * @return ujoin PDU
+	 */
+	public static PDU ujoin(String nick, int timeStamp) {
+
+		int nickLength = nick.length(); 
+		nick = appendZeros(nick);
+		
+		PDU message = new PDU(8 + nick.length());
+		message.setByte(0, (byte) OpCodes.UJOIN);
+		message.setByte(1, (byte) nickLength);
+		message.setSubrange(2, new byte[]{'\0','\0'});
+		message.setInt(4, timeStamp);
+		try {
+			message.setSubrange(8, nick.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(8, nick.getBytes());
+		}		
+		return message;
+	}
+	
+	/**
+	 * Creates uleave PDU
+	 * Server -> Client
+	 * Used for informing all connected client that a client has disconnected.
+	 * @param nick Name of that client
+	 * @param timeStamp Time the client disconnected
+	 * @return uleave PDU
+	 */
+	public static PDU uleave(String nick, int timeStamp) {
+		int nickLength = nick.length();
+		nick = appendZeros(nick);
+		
+		PDU message = new PDU(8 + nick.length());
+
+		message.setByte(0, (byte) OpCodes.ULEAVE);
+		message.setByte(1, (byte) nickLength);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setInt(4, timeStamp);
+		try {
+			message.setSubrange(8, nick.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(8, nick.getBytes());
+		}
+		return message;
+	}
+	
+	/**
+	 * Creates chnick PDU
+	 * Client -> Server
+	 * Used for setting a new nickname.
+	 * @param nick Preferred name.
+	 * @return chnick PDU
+	 */
+	public static PDU chnick(String nick) {
+		int nickLenght = nick.length(); 
+		nick = appendZeros(nick);
+
+		PDU message = new PDU(4 + nick.length());
+		message.setByte(0, (byte) OpCodes.CHNICK);
+		message.setByte(1, (byte) nickLenght);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		try {
+			message.setSubrange(4, nick.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(4, nick.getBytes());
+		}
+
+		return message;
+	}
+	
+	/**
+	 * Creates ucnick PDU
+	 * Server -> Client
+	 * Used for informing all clients that someone has changed its nickname.
+	 * @param nickOld Nickname before change.
+	 * @param nickNew Nicname after change.
+	 * @param timeStamp Time when the change took place.
+	 * @return ucnick PDU
+	 */
+	public static PDU ucnick(String nickOld, String nickNew, int timeStamp ) {
+		nickOld = appendZeros(nickOld);
+		nickNew = appendZeros(nickNew);		
+		
+		PDU message = new PDU(8 + nickOld.length() + nickNew.length());
+		
+		message.setByte(0, (byte) OpCodes.UCNICK);
+		message.setByte(1, (byte) nickOld.length());
+		message.setByte(2, (byte) nickNew.length());
+		message.setByte(3, (byte) '\0');
+		message.setInt(4, timeStamp);
+		try {
+			message.setSubrange(8, nickOld.getBytes("UTF-8"));
+		} catch (UnsupportedEncodingException e) {
+			message.setSubrange(8, nickOld.getBytes());
+		}
+		message.setSubrange(8 + nickOld.length(), nickNew.getBytes());
+		
+		return message;
+	}
+	
+	
+	/**
+	 * Appends \0 to each string and event out
+	 * the string to 4 bytes.
+	 * @param strArray 
+	 * @return A array of strings with \0
+	 */
+	private static String appendZeros(String[] strArray) {
+		String returnStr = "";
+		for(String str : strArray)
+			returnStr +=  (str + "\0");
+		
+		while (returnStr.length()%4 != 0)
+			returnStr += "\0";
+		
+		return returnStr;
+	}
+	
+	/**
+	 * Appends \0 to the string and event out
+	 * the string to 4 bytes.
+	 * @param str 
+	 * @return A strings with \0
+	 */
+	public static String appendZeros(String str) {
+		str += "\0";
+		
+		while (str.length()%4 != 0)
+			str += "\0";
+		
+		return str;
+	}
+	
+	/**
+	 * Appends \0 to the byte array so that its length is evenly devides by 4.
+	 * @param
+	 * @return
+	 */
+	public static byte[] appendZeros(byte[] bytes){
+		
+		int appendLength =  4 - (bytes.length  % 4);
+		byte[] b = new byte[bytes.length + appendLength];
+		
+		
+		for(int i = 0; i < bytes.length; i++ ){
+			b[i] = bytes[i];
+		}
+
+		for(int j = 0; j < appendLength; j++){
+			b[j+bytes.length] = '\0';
+		}		
+		
+		
+		return b;
+	}
+	
+	/**
+	 * Devides a string into a array of strings with '\0' as token.
+	 * @param str
+	 * @return
+	 */
+	public static String[] removeZeros(String str) {
+		return str.split("\0");
+	}
+	
+	/**
+	 * Removes zeroes from an array of bytes.
+	 * @param bytes
+	 * @return new array of bytes without the zeroes.
+	 */
+	public static byte[] removeZeros(byte[] bytes) {
+
+		int counter = 0;
+		while(bytes[bytes.length-counter-1] == '\0'){
+			counter++;
+			System.out.println(counter);
+		}
+		
+		if (counter == 0) {
+			return bytes;
+		}
+		
+		byte[] newBytes = new byte[bytes.length-counter];
+		
+		for (int i = 0; i < bytes.length-counter; i++) {
+			newBytes[i] = bytes[i];
+		}
+		return newBytes;
+	}
+	
+}

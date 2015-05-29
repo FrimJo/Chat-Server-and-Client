@@ -1,0 +1,198 @@
+package application;
+
+
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+
+//TODO Rename to Client ClientToServer
+public class ConnectedServer extends Thread{
+	private static int			THREADCOUNTER = 0;
+	
+	private boolean				exit;
+	private String				topic;
+	private Socket				serverSocket;
+	//private String[]		 	userList;
+	private String 				nick;
+	private DataOutputStream	outToServer;
+	private InputStream			inFromServer;
+	
+	public ConnectedServer(String server_ip, int server_port, String nick) throws IOException{
+		
+		/* Naming this Thread. */
+		super("Server Thread " + THREADCOUNTER++);
+		
+		this.exit = false;
+		//this.userList = new String[255];
+		this.nick = nick;
+		while(true){
+			try {
+				this.serverSocket	= new Socket(server_ip, server_port);
+				this.serverSocket.setSoTimeout(5000);
+				this.outToServer	= new DataOutputStream(this.serverSocket.getOutputStream());
+				this.inFromServer	= this.serverSocket.getInputStream();
+				break;
+			} catch (UnknownHostException e) {
+				Client.INSTANCE.println("6");
+			}
+		}
+		this.start();
+		connect();
+	}
+	
+	/** Connect to a chat-server using TCP. */
+	private boolean connect(){
+		/* Generate a PDU-message to use when
+		 * connecting to the server.*/ 
+		PDU join_MSG = PDU_Factory.join(this.nick);
+		
+		try {
+			this.outToServer.write(join_MSG.getBytes());
+		} catch (IOException e) {
+			Client.INSTANCE.println("5");
+			return false;
+		}
+		Client.INSTANCE.println("JOIN message sent!");
+		return true;
+	}
+	
+	/** Disconnect from the server. */
+	public void disconnect(){
+		PDU quit_MSG = PDU_Factory.quit("");
+		try {
+			this.outToServer.write(quit_MSG.getBytes());
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		Client.INSTANCE.println("QUIT message sent!");
+		this.exit = true;
+	}
+	
+	public String getTopic(){ return this.topic; }
+	
+	public void setTopic(String topic){ 
+		this.topic = topic;
+	}
+	
+
+	@Override
+	public void run() {
+		 Client.INSTANCE.println("ConnectedServer thread [" + this.getName() + "] started.");
+		 System.out.println("1");
+		
+		/*Enter the run loop*/
+		byte[] streamBuffer = new byte[1024];
+		PDU message;
+		while(!this.exit){
+			try {
+				if (this.inFromServer.read(streamBuffer) == -1)
+					throw new SocketException();
+				
+				System.out.println("2");
+
+					
+				message = new PDU(streamBuffer, streamBuffer.length);
+	
+				switch(message.getByte(0)){
+				case OpCodes.NICKS:
+					Client.INSTANCE.println("\nReceived PDU NICKS.");
+					Client.INSTANCE.println("Op code: " + (byte) message.getByte(0));
+					Client.INSTANCE.println("nr nicks: " + (byte) message.getByte(1));
+					Client.INSTANCE.println("Size of bytes: " + (short) message.getShort(2));
+					String nicks = new String ( message.getSubrange(4, message.getShort(2) ) );
+					Client.INSTANCE.println("String: " + new String(nicks));
+					
+					//this.userList = PDU_Factory.removeZeros(nicks);
+					break;
+				case OpCodes.MESSAGE:
+					Client.INSTANCE.println("Received a MESSAGE.");
+					Client.INSTANCE.println("\nReceived PDU MESSAGE.");
+					Client.INSTANCE.println("OpCode: "+ message.getByte(0) );
+					Client.INSTANCE.println("Meddelandetyp: "+ message.getByte(1));
+					Client.INSTANCE.println("Nick l?ngd: "+ message.getByte(2));
+					Client.INSTANCE.println("Checksumma: "+ message.getByte(3));
+					Client.INSTANCE.println("Meddelandel?ngd: "+ message.getShort(4));
+					Client.INSTANCE.println("Pad: "+ message.getShort(4));
+					Client.INSTANCE.println("Tidsst?pel: "+ message.getInt(8) );
+					Client.INSTANCE.println("Meddelande: "+ message.getSubrange(12, message.getShort(4)) );
+					Client.INSTANCE.println("Nickname: "+ message.getSubrange(12 + message.getShort(4), message.getByte(2)) );
+
+					break;
+				case OpCodes.GETLIST:
+					Client.INSTANCE.println("Received a GETLIST.");
+					//TODO
+					break;
+				case OpCodes.CHNICK:
+					Client.INSTANCE.println("\nReceived PDU CHNICK.");
+					Client.INSTANCE.println("OpCode: "+ message.getByte(0));
+					Client.INSTANCE.println("Length of nick: "+ message.getByte(1));
+					Client.INSTANCE.println("Pad: "+ message.getShort(2));
+					Client.INSTANCE.println("Nickname: "+ message.getSubrange(4, message.getByte(1)));
+					
+					String[] nickArray = PDU_Factory.removeZeros( new String(message.getSubrange(4, message.getByte(1))) );
+					this.nick = nickArray[0];
+					break;
+					
+				case OpCodes.UINFO:
+					System.out.println("\nReceived PDU UINFO");
+					System.out.println("OpCode: "+ (byte) message.getByte(0));
+					System.out.println("Pad: "+ new String( message.getSubrange(1, 3) ));
+					System.out.println("Address: "+ new String( InetAddress.getByAddress( message.getSubrange(4, 7) ).getAddress() ) );
+					System.out.println("User connected at: " + (int) message.getInt(8));
+					break;
+					
+				case OpCodes.UJOIN:
+					Client.INSTANCE.println("\nReceived PDU UJOIN.");
+					Client.INSTANCE.println("OpCode: "+ message.getByte(0));
+					Client.INSTANCE.println("Length of nick: "+ message.getByte(1));
+					Client.INSTANCE.println("Pad: "+ message.getShort(2));
+					Client.INSTANCE.println("Tidsst?mpel: " + (int) message.getInt(4));
+					Client.INSTANCE.println("Nickname: "+ message.getSubrange(8, message.getByte(1)));
+					break;
+					
+				case OpCodes.ULEAVE:
+					Client.INSTANCE.println("\nReceived PDU ULEAVE.");
+					Client.INSTANCE.println("OpCode: "+ message.getByte(0));
+					Client.INSTANCE.println("Length of nick: "+ message.getByte(1));
+					Client.INSTANCE.println("Pad: "+ message.getShort(2));
+					Client.INSTANCE.println("Tidsst?mpel: " + (int) message.getInt(4));
+					Client.INSTANCE.println("Nickname: "+ message.getSubrange(8, message.getByte(1)));
+					break;
+					
+				default:
+					Client.INSTANCE.println("Wrong OpCode received from server! ");
+					break;
+				}
+				
+			} catch (SocketTimeoutException e1){
+				/* Catch the timeout, but keep the thread running. */
+			} catch (SocketException e) {
+				System.out.println("5");
+				disconnect();
+			}  catch (IOException e2){
+				/* An IOException was raised, disconnect the Server. */
+				this.disconnect();
+				Server.INSTANCE.println("Disconnect from server");
+				System.out.println("6");
+			}
+	
+		} 
+		System.out.println("3");
+		
+		try {
+			this.inFromServer.close();
+			this.outToServer.close();
+			this.serverSocket.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		Client.INSTANCE.println("ConnectedServer thread [" + this.getName() + "] end.");
+	}
+}
+

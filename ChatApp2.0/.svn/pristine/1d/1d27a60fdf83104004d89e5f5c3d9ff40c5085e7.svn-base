@@ -1,0 +1,83 @@
+package application;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.UnknownHostException;
+
+import javafx.application.Platform;
+
+
+public abstract class TCP extends Thread{
+	
+	private boolean					stop = false;
+	
+	protected Socket				socket;
+	protected DataOutputStream		outStream;
+	protected InputStream			inStream;
+	
+	public TCP(String thread_name, String server_ip, int server_port) throws UnknownHostException, IOException{
+		super(thread_name);
+		this.socket = new Socket(server_ip, server_port);
+		this.outStream = new DataOutputStream(this.socket.getOutputStream());
+		this.inStream = this.socket.getInputStream();
+		
+		start();
+		
+	}
+	
+	public TCP(String thread_name, Socket socket) throws UnknownHostException, IOException{
+		super(thread_name);
+		this.socket = socket;
+		//this.socket.setSoTimeout(5000);
+		this.outStream = new DataOutputStream(this.socket.getOutputStream());
+		this.inStream = this.socket.getInputStream();
+		start();
+	}
+	
+	@Override
+	public void run(){	
+		byte[] streamBuffer = new byte[1024];
+		
+		while(!stop){
+			try {
+				if(this.inStream.read(streamBuffer) == -1){
+					disconnect();
+				}else{
+					System.out.println("TEST");
+					receivePDU( new PDU(streamBuffer, streamBuffer.length) );
+				}
+			} catch (IOException e1) {
+				//Catches the IOException but keeps the thread running.
+			}
+			
+		}
+		
+		System.out.println("TCP disconnected.");
+	}
+	
+	public abstract void receivePDU(PDU pdu) throws IOException;
+	
+	public void sendPDU(PDU pdu) throws IOException{
+		this.outStream.write(pdu.getBytes());
+	}
+	
+	public void disconnect(){
+		this.stop = true;
+		try {
+			this.socket.close();
+		} catch (IOException e) {
+			//Catches the IOException but keeps the thread running.
+		}
+		
+	}
+	
+	protected InetAddress getInetAddress(){
+		return this.socket.getInetAddress();
+	}
+	
+	protected int getPort(){
+		return this.socket.getPort();
+	}
+}

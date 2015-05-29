@@ -1,0 +1,450 @@
+package application;
+import java.io.IOException;
+import java.net.BindException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+
+
+/**
+ * The main class of ChattApp 2.0 Server side. It uses the
+ * Singleton design pattern. Controls all the connection
+ * from the client to different servers.
+ * @author Fredrik Johansson
+ * @author Mattias Edin 
+ */
+public enum Server{
+	INSTANCE;
+	
+	private final int				MAX_CONNECTIONS = 255;
+	private final String			dns_ip = "itchy.cs.umu.se";
+	private final int				dns_port = 1337;
+	
+	private String					server_ip;
+	private int						server_port;
+	
+	private boolean					stop = false;
+	private String					topic;
+	private short					ID;
+	private ServerSocket			welcomeSocket;
+	private GUI_Interface_Server 			gui;
+	private ToDNS					dns_server;
+	
+	private ArrayList<ToClient>		clientList;
+	
+	/**
+	 * The constructor for class Server. Being a singleton implies that
+	 * the constructor is empty because object wont and can't be
+	 * generated. This class is initialized from main in the
+	 * init method and used through Server.INSTANCE.[method].
+	 */
+	private Server(){ }
+	
+	/**
+	 * This is the initialize method, it uses a GUI, server IP and server port, to
+	 * establish a connection to a DNS.
+	 * @param gui The GUI to be used with the server, needs to implement GUI_Interface_Server.java.
+	 * @param server_ip The IP of where the server is established.
+	 * @param server_port The port of where the server is established.
+	 * @param topic The chosen topic of the server.
+	 */
+	public void init(GUI_Interface_Server gui, final String server_ip, final String server_port, final String topic){
+		this.gui = gui;
+		this.topic = topic;
+		this.server_ip = server_ip;
+		this.server_port = Integer.parseInt(server_port);
+		println("Initializing server.");
+		
+		
+		while(!stop){
+			println("Setup up welcome socket at TCP port: " + this.server_port);
+			try {
+				this.welcomeSocket = new ServerSocket(this.server_port);
+				break;
+			} catch (BindException e){
+				println("Port " + server_port + " is occupied.");
+				print("Pleas enter another port to connect to: ");
+				
+				this.server_port = Integer.parseInt( in() );
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		
+		try {
+			this.dns_server = new ToDNS(dns_ip, dns_port);
+		} catch (UnknownHostException e) {
+			println("Couldn't connect to DNS server.");
+		} catch (SocketException e1){
+			println("Server - SocketException");
+		}
+		
+		this.clientList = new ArrayList<ToClient>(MAX_CONNECTIONS);
+		
+		gui.start();
+		
+		ToClient c;
+		while(!this.stop){
+			try {
+				c = new ToClient( this.welcomeSocket.accept() );
+				if(this.clientList.size() < MAX_CONNECTIONS){
+					c.connect();
+					println("Client connected from: " + c.getInetAddress() + ":" + c.getPort());	
+				}else{
+					c.disconnect();
+				}
+			} catch (UnknownHostException e) {
+				println("IP address of the host could not be determined, shutting down.");
+				shutDown();
+			} catch (IOException e) {
+				//Catches the IOException but keeps the thread running.
+			}
+		}
+		
+		if(this.clientList.size() > 0){
+			println("Disconnecting all clients from the server.");
+			
+			for(int i = 0; i < this.clientList.size(); i++){
+				this.clientList.get(i).disconnect();	
+			}
+		}
+		this.dns_server.disconnect();
+		Server.INSTANCE.println("System stoped.");
+	}
+	
+	/**
+	 * Getter for the topic.
+	 * @return The topic of the server
+	 */
+	public synchronized String getTopic(){
+		return this.topic;
+	}
+	
+	/** Changes the topic of the server, and then provide all
+	 * the clients and the DNS with the new topic. 
+	 */
+	public synchronized void setTopic(String topic){
+		this.topic = topic;
+		this.dns_server.changeTopic();
+	}
+	
+	/**
+	 * Getter of the server port.
+	 * @return Server port.
+	 */
+	public synchronized int getServer_port(){
+		return this.server_port;
+	}
+	
+	/**
+	 * Getter of the server IP.
+	 * @return Server IP.
+	 */
+	public synchronized String getServer_ip(){
+		return this.server_ip;
+	}
+	
+	/**
+	 * Getter for the server ID witch it receives from the DNS.
+	 * @return Server ID.
+	 */
+	public synchronized short getID(){
+		return this.ID;
+	}
+	
+	/**
+	 * Setter for server ID.
+	 * @param ID Server ID.
+	 */
+	public synchronized void setID(short ID){
+		this.ID = ID;
+	}
+	
+	/**
+	 * Sends a PDU to all connected clients of this server.
+	 * @param pdu The PDU to send.
+	 */
+	public synchronized void sendPDUToAllClients(PDU pdu){
+		for(ToClient c : this.clientList){
+			c.sendPDU(pdu);
+		}
+	}
+	
+	
+	/**
+	 * Checks to see if a nick is occupied among the connected clients in
+	 * the client-list and returns a unique nick. A pair of nicknames counts
+	 * as being equal if they are equal after using the method toUppercase on
+	 * the pair.
+	 * @param nick Preferred nickname.
+	 * @return A unique nickname.
+	 */
+	public String isNickOccupied(String nick){
+		ToClient c;
+		String str = "";
+		int counter = 0;
+		boolean done = false;
+		while(!done){
+			done = true;
+			for(int index = 0; index < this.clientList.size(); index++){
+				c = this.clientList.get(index);
+				if((nick + str).toUpperCase().equals(c.getNick().toUpperCase())){
+					counter++;
+					str = Integer.toString(counter);
+					done = false;
+					break;
+				}
+			}
+			
+		}
+		return nick + str;
+	}
+	
+	/**
+	 * Start a connection towards a DNS using UDP protocol.
+	 * @param dns_ip IP address of the DNS.
+	 * @param dns_port The port of the DNS.
+	 */
+	public void connectDNS(String dns_ip, int dns_port){
+		try {
+			this.dns_server = new ToDNS(dns_ip, dns_port);
+		} catch (UnknownHostException e) {
+			println("Unknown DNS server.");
+			this.dns_server.disconnect();
+		} catch (SocketException e) {
+			this.dns_server.disconnect();
+		}
+	}
+	
+	/**
+	 * Sends a PDU to the DNS.
+	 * @param pdu The PDU to send.
+	 */
+	public synchronized void sendPDUToDNS(PDU pdu){
+		try {
+			this.dns_server.sendPDU(pdu);
+		} catch (UnknownHostException e) {
+			println("Unknown DNS server.");
+			this.dns_server.disconnect();
+		} catch (IOException e) {
+			this.dns_server.disconnect();
+		}
+	}
+	
+	/**
+	 * Shutdown the server and close the welcome socket.
+	 */
+	public void shutDown(){
+		this.stop = true;
+		try {
+			this.welcomeSocket.close();
+		} catch (IOException e) {
+			//Catches the IOException but does nothing.
+		}
+		
+	}
+	
+	/**
+	 * Appends the specified element to the end of the list
+	 * of connected clients.
+	 * @param e Element to be appended to this list.
+	 * @return A boolean representing whether the client was successfully added.
+	 */
+	public synchronized boolean clientListAdd(ToClient e){		
+		println("Added a client to clientList.");
+		return this.clientList.add(e);	
+	}
+	
+	/**
+	 * Removes the first occurrence of the specified element from this list,
+	 * if it is present. If the list does not contain the element, it is unchanged.
+	 * More formally, removes the element with the lowest index i such that
+	 * (o==null ? get(i)==null : o.equals(get(i))) (if such an element exists).
+	 * Returns true if this list contained the specified element
+	 * (or equivalently, if this list changed as a result of the call).
+	 * @param e Element to be removed from this list, if present.
+	 */
+	public synchronized void clientListRemove(ToClient o){
+		this.clientList.remove(o);
+	}
+	
+	/**
+	 * Getter for the list with connected clients.
+	 * @return The whole list with connected clients.
+	 */
+	public synchronized ArrayList<ToClient> getClientList(){
+		return this.clientList;
+	}
+	
+	/**
+	 * Getter for a specific client in the list with 
+	 * currently connected clients.
+	 * @param infoNick The nick to look for.
+	 * @return null if no client with specified nick found, or the found client.
+	 */
+	public synchronized ToClient getClient(String infoNick){
+		System.out.println("Searching client " + infoNick + " in clientList.");
+		
+		for(ToClient client : this.clientList){
+			if(client.getNick().equals(infoNick)){
+				return client;
+			}
+		}
+		return null;
+	}
+	
+	/**
+	 * Tells the GUI to print a string.
+	 * @param str The string to print.
+	 */
+	public synchronized void print(String str){
+		this.gui.print(str);
+	}
+	
+	/**
+	 * Tells the GUI to print a string and a enter.
+	 * @param str The string to print.
+	 */
+	public synchronized void println(String str){
+		this.gui.println(str);
+	}
+	
+	/**
+	 * Gets input from user through the GUI.
+	 * @return User entered string.
+	 */
+	public synchronized String in(){
+		return this.gui.in();
+	}
+	
+	/**
+	 * This class is a nestled class inside the class Server.
+	 * It extends UDP to communicate with a DNS.
+	 * @param alive A thread used to send alive messages to the DNS.
+	 * @author Fredrik Johansson
+	 */
+	private static class ToDNS extends UDP{
+		
+		private Thread alive;
+		
+		/**
+		 * Constructor for ToDNS. Register with a name server (DNS) and starts
+		 * a thread with sends alive messages to the DNS.
+		 * @param dns_ip IP of DNS.
+		 * @param dns_port Port of DNS.
+		 * @throws UnknownHostException Thrown to indicate that the IP address of a host could not be determined.
+		 * @throws SocketException Thrown to indicate that there is an error creating or accessing a Socket.
+		 */
+		public ToDNS(String dns_ip, int dns_port) throws UnknownHostException, SocketException{
+			super("DNS Thread", dns_ip, dns_port);
+			try{
+				Server.INSTANCE.println("Connecting to DNS server: " + dns_ip + " at port: " + dns_port);
+				reg();
+				alive();
+			} catch (IOException e) {
+				Server.INSTANCE.println("Couldn't send register message to DNS server.");
+				disconnect();
+			}
+		}
+		
+		/**
+		 * This method overrides a abstract method in the UDP class. It is called
+		 * when the UDP class receives a package. The receive method then uses the
+		 * received data to do different action depending of the OpCode of the package.
+		 */
+		@Override
+		public void receive(byte[] bytes) throws IOException {
+			PDU pdu = new PDU(bytes, bytes.length);
+			switch (pdu.getByte(0)) {
+			case OpCodes.ACK:
+				Server.INSTANCE.setID( (short) pdu.getShort(2) );
+				break;
+				
+			case OpCodes.NOTREG:
+				Server.INSTANCE.println("Server is not registered with the DNS server.");
+				Server.INSTANCE.println("Trying to reregister.");
+				reg();
+				break;
+				
+			default:
+				Server.INSTANCE.println("Wrong OpCode received from server.");
+				break;
+			}
+			
+		}
+		
+		/**
+		 * Register method, sends a register package to the DNS.
+		 * @throws IOException Signals that an I/O exception of some sort has occurred. This class is the general class of exceptions produced by failed or interrupted I/O operations.
+		 */
+		public void reg() throws IOException{
+			sendPDU(PDU_Factory.reg(InetAddress.getByName( Server.INSTANCE.getServer_ip() ), Server.INSTANCE.getServer_port(), Server.INSTANCE.getTopic()));
+		}
+		
+		/**
+		 * Seat a alive thread in motion, witch will send alive messages
+		 * to the DNS.
+		 */
+		public void alive(){
+			this.alive = new Thread("Alive Thread"){
+				@Override
+				public void run(){
+					try {
+						sleep(30000);
+						while(!ToDNS.this.stop){
+							sendPDU(PDU_Factory.alive(Server.INSTANCE.getID(), Server.INSTANCE.getClientList().size()));
+							sleep(30000);
+						}
+					}
+					 catch (IOException e) {
+						Server.INSTANCE.println("Couldn't send alive message to DNS server.");
+					} catch (InterruptedException e) {
+						//Catches the InterruptedException but keeps the thread running.
+					}
+					Server.INSTANCE.println("Alive Closed");
+				}
+			};
+			this.alive.start();
+		}
+		
+		/**
+		 * Changes the topic of the server on the DNS.
+		 */
+		public void changeTopic(){
+			try {
+				Server.INSTANCE.println("Send change topic message to DNS server");
+				sendPDU(PDU_Factory.chtopic(Server.INSTANCE.getID(), Server.INSTANCE.getTopic()));
+			} catch (IOException e) {
+				Server.INSTANCE.println("Couldn't send change topic message to DNS server.");
+			}
+		}
+		
+		/**
+		 * Overrides the abstract disconnect method of class UDP.
+		 * Disconnects the UDP and interrupts the alive thread.
+		 */
+		@Override
+		public void disconnect(){
+			super.disconnect();
+			this.alive.interrupt();
+		}
+	}
+	
+	/**
+	 * Main method runs when the program is executed.
+	 * @param args A string array of arguments passed on at runtime.
+	 * @throws Exception
+	 */
+	public static void main(String[] args){
+		
+		/* Initiating GUI and launch server. */
+		if(args.length == 3){
+			Server.INSTANCE.init(new Server_UI(), args[0], args[1], args[2]);	
+		}else{
+			System.out.println("Received wrong number of input strings, should server ip, server port and topic");	
+		}
+		
+	}
+}

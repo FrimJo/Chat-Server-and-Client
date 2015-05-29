@@ -1,0 +1,215 @@
+package application;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.sql.Time;
+
+
+public class ToServer extends TCP{
+	private static int			threadCounter = 0;
+	private String				nick;
+	private String[]		    nickList;
+	private boolean				joined;
+	private String				topic;
+	
+	public ToServer(String client_ip, int client_port) throws UnknownHostException, IOException{
+		super("Client thread " + threadCounter++, client_ip, client_port);
+		this.nick = null;
+		this.joined = false;
+	}
+
+	@Override
+	public void receive(byte[] bytes) throws IOException{
+		PDU pdu = new PDU(bytes, bytes.length);
+		
+		switch(pdu.getByte(0)){
+		case OpCodes.NICKS:
+			System.out.println("\nReceived PDU NICKS.");
+			System.out.println("Op code: " + (byte) pdu.getByte(0));
+			System.out.println("nr nicks: " + (byte) pdu.getByte(1));
+			System.out.println("Length of string: " + (short) pdu.getShort(2));
+			String nicks = new String ( pdu.getSubrange(4, pdu.getShort(2) ) );
+			System.out.println("String: " + nicks);
+			
+			this.nickList = PDU_Factory.removeZeros(nicks);
+			Client.INSTANCE.sendListOfNicks(this.nickList);
+			
+			break;
+		case OpCodes.MESSAGE:
+			System.out.println("Received a MESSAGE.");
+			System.out.println("\nReceived PDU MESSAGE.");
+			System.out.println("OpCode: "+ pdu.getByte(0) );
+			System.out.println("Meddelandetyp: "+ pdu.getByte(1));
+			System.out.println("Nick längd: "+ pdu.getByte(2));
+			System.out.println("Checksumma: "+ pdu.getByte(3));
+			System.out.println("Meddelandelängd: "+ pdu.getShort(4));
+			System.out.println("Pad: "+ pdu.getShort(4));
+			System.out.println("Tidsstäpel: "+ pdu.getInt(8) );
+			System.out.println("Meddelande: "+ pdu.getSubrange(12, pdu.getShort(4)) );
+			System.out.println("Nickname: "+ pdu.getSubrange(12 + pdu.getShort(4), pdu.getByte(2)) );
+
+			break;
+			
+		case OpCodes.CHNICK:
+			System.out.println("\nReceived PDU CHNICK.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2));
+			System.out.println("Nickname: "+ new String( pdu.getSubrange(4, pdu.getByte(1))) );
+			
+			String[] nickArray = PDU_Factory.removeZeros( new String(pdu.getSubrange(4, pdu.getByte(1))) );
+			this.nick = nickArray[0];
+			sendPDU(PDU_Factory.getlist());
+			
+			break;
+			
+		case OpCodes.UINFO:
+			System.out.println("\nReceived PDU UINFO");
+			System.out.println("OpCode: "+ (byte) pdu.getByte(0));
+			System.out.println("Pad: "+ new String( pdu.getSubrange(1, 3) ));
+			System.out.println("Address: "+ InetAddress.getByAddress( pdu.getSubrange(4, 4) ).getHostAddress() );
+			
+			Client.INSTANCE.println("Who is:" + InetAddress.getByAddress( pdu.getSubrange(4, 4) ).getHostAddress() );
+			
+			break;
+			
+		case OpCodes.UJOIN:
+			System.out.println("\nReceived PDU UJOIN.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2));
+			System.out.println("Tidsstämpel: " + pdu.getInt(4));
+			System.out.println("Nickname: "+ new String( pdu.getSubrange(8, pdu.getByte(1))) );
+			if(new String( pdu.getSubrange(8, pdu.getByte(1))).equals(this.nick) && this.joined != true){
+				this.joined = true;
+			}
+			Client.INSTANCE.println( new String( pdu.getSubrange(8, pdu.getByte(1))) + " joined at: " + new Time(pdu.getInt(4)).toString());
+			break;
+			
+		case OpCodes.ULEAVE:
+			System.out.println("\nReceived PDU ULEAVE.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2));
+			System.out.println("TidsstStampel: " + (int) pdu.getInt(4));
+			System.out.println("Nickname: "+ pdu.getSubrange(8, pdu.getByte(1)));
+			sendPDU(PDU_Factory.getlist());
+			
+			Client.INSTANCE.println("");
+			break;
+			
+		case OpCodes.UCNICK:
+			System.out.println("\nReceived PDU UCNICK.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of old nick: "+ pdu.getByte(1));
+			System.out.println("Length of new nick: "+ pdu.getByte(2));
+			System.out.println("Pad: "+ pdu.getByte(3));
+			System.out.println("TidsstStampel: " + pdu.getInt(4));
+			
+			String nickOld = new String( pdu.getSubrange(8, pdu.getByte(1)) );
+			String nickNew = new String( pdu.getSubrange(8 + pdu.getByte(1), pdu.getByte(2)) );
+			
+			Client.INSTANCE.println( PDU_Factory.removeZeros(nickOld)[0] + " changed name to " + PDU_Factory.removeZeros(nickNew)[0] + " at: " + new Time(pdu.getInt(4)).toString() );
+			sendPDU(PDU_Factory.getlist());
+			
+		case OpCodes.CHTOPIC:
+			System.out.println("\nReceived PDU UHTOPIC.");
+			System.out.println("OpCode: "+ pdu.getByte(0));
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2) );
+			System.out.println("Topic: " + new String( pdu.getSubrange(4, pdu.getByte(1)) ));
+			this.topic = new String( pdu.getSubrange(4, pdu.getByte(1)) );
+			Client.INSTANCE.println("Topic changed to: " + this.topic);
+			break;
+			
+		default:
+			System.out.println("Wrong OpCode received from server! receved: " + pdu.getByte(0));
+			break;
+		}
+	}
+	
+	@Override
+	public void connect() throws UnknownHostException, IOException{
+		if(!this.joined && this.nick != null){
+			super.connect();
+			sendPDU(PDU_Factory.join(this.nick));
+			System.out.println("JOIN message sent!");
+		}else{
+			System.out.println("Can't connect to server, allready joined, or nick isn't set.");
+		}
+	}
+	
+	@Override
+	public void disconnect() throws IOException {
+		if(this.joined){
+			sendPDU(PDU_Factory.quit(this.nick));
+			super.disconnect();
+			this.joined = false;
+			System.out.println("QUIT message sent!");
+		}
+	}
+	
+	public void sendPDU(PDU pdu) throws IOException{
+		super.send(pdu.getBytes());
+	}
+	
+	public void getUserInfo(String nick) throws IOException {
+		if(this.joined){
+			sendPDU(PDU_Factory.whois(nick));
+			System.out.println("WHOIS message sent!");
+		}
+	}
+	
+	public String getNick(){
+		return this.nick;
+	}
+	
+	public void changeNickName(String nick) throws IOException {
+		//System.out.println("Changed nick from " + this.nick + " to " + nick);
+		this.nick = nick;
+		if(this.joined){
+			sendPDU( PDU_Factory.chnick(nick) );
+			System.out.println("CHNICK message sent!");
+		}
+	}
+	
+	public String getTopic(){
+		return this.topic;
+	}
+	
+	public void setTopic(String topic) throws IOException{
+		if(this.joined){
+			sendPDU(PDU_Factory.chtopic(topic));
+			System.out.println("CHTOPIC message sent!");
+		}
+	}
+	
+	public void sendMessage(int type, String text) throws IOException {
+		if(this.joined){
+			sendPDU(PDU_Factory.message(type, (int) System.currentTimeMillis(), this.nick, text));
+			System.out.println("TEXT Message sent!");
+		}
+	}
+	
+	@Override
+	public boolean equals(Object o){
+		if(o == null)
+			return false;
+		
+		if(o.getClass() != this.getClass())
+			return false;
+		
+		ToServer s = (ToServer) o;
+		
+		if(!s.toString().equals(this.toString()))
+			return false;
+		
+		return true;
+	}
+	
+	@Override
+	public String toString(){
+		return this.server_ip + ":" + this.server_port;
+	}
+}
+

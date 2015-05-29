@@ -1,0 +1,500 @@
+package application;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
+
+
+public class PDU_Factory {
+	
+	public static PDU reg(InetAddress dns_address, int dns_port, String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		PDU message = new PDU(8 + topic.length());
+		message.setByte(0, (byte) OpCodes.REG);
+		message.setByte(1, (byte) length);
+		message.setShort(2, (short) dns_port);
+		message.setSubrange(4, dns_address.getAddress());
+		message.setSubrange(8, topic.getBytes());
+		
+		return message;
+	}
+	
+	public static PDU alive(int id, int nrOfClients) {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.ALIVE);
+		message.setByte(1, (byte) nrOfClients);
+		message.setShort(2, (short) id);
+		
+		return message;
+	}
+	
+	public static PDU chtopic(String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		
+		PDU message = new PDU(4 + topic.length());
+		
+		message.setByte(0, (byte) OpCodes.CHTOPIC);
+		message.setByte(1, (byte) length);
+		message.setSubrange(2, new byte[]{'\0','\0'} );
+		message.setSubrange(4, topic.getBytes());
+		
+		System.out.println("\nGenerate package CHTOPIC");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of topic: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2) );
+		System.out.println("Topic: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		
+		return message;
+	}
+	
+	public static PDU chtopic(int id, String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		
+		PDU message = new PDU(4 + topic.length());
+		
+		message.setByte(0, (byte) OpCodes.CHTOPIC);
+		message.setByte(1, (byte) length);
+		message.setShort(2, (short) id );
+		message.setSubrange(4, topic.getBytes());
+		
+		System.out.println("\nGenerate package CHTOPIC");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of topic: "+ message.getByte(1));
+		System.out.println("ID: "+ message.getShort(2) );
+		System.out.println("Topic: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		
+		return message;
+	}
+	
+	public static PDU notreg() {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.NOTREG);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+	
+	public static PDU getlist() {
+		
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.GETLIST);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+	
+	public static PDU message(int type, String text, byte[] cryptKey) throws WrongCryptTypeException, UnsupportedEncodingException, IOException{
+		System.out.println("\nGenerate package MESSAGE");
+		
+		byte[] message;
+		
+		switch (type) {
+		case MsgTypes.TEXT:
+			System.out.println("MsgTypes.TEXT");
+			text = appendZeros(text);
+			message = text.getBytes("UTF-8");
+			break;
+			
+		case MsgTypes.COMP:
+			System.out.println("MsgTypes.COMP");
+			byte[] compByte = compress(text);
+			byte[] compByteWithZeroes = appendZeros(compByte);
+			
+			System.out.println("Generating COMP MESSAGE");
+			PDU compPDU = new PDU(8 + compByteWithZeroes.length);
+			compPDU.setByte(0, (byte) 0);
+			compPDU.setByte(1, (byte) '\0');
+			compPDU.setShort(2, (short) compByte.length);
+			compPDU.setShort(4, (short) text.length());
+			compPDU.setSubrange(6, new byte[] {'\0', '\0'});
+			compPDU.setSubrange(8, compByteWithZeroes);											//Set the compromised text in byteArray with appended zeroes to slot 8 in compPDU.
+			compPDU.setByte(1, Checksum.calc(compPDU.getBytes(), compPDU.length()));			//Calculate the checksum of the whole compPDU and add it to slot 1.
+			message = compPDU.getBytes();
+			break;
+			
+		case MsgTypes.CRYPT:
+			System.out.println("MsgTypes.CRYPT");
+			byte[] cryptByte = text.getBytes("UTF-8");
+			Crypt.encrypt(cryptByte, cryptByte.length, cryptKey, cryptKey.length);				//Encrypt text in byteArray without added zeroes
+			byte[] cryptByteWithZeroes = appendZeros(cryptByte);									//Append zeroes to the crypted byteArray
+			
+			System.out.println("Generating CRYPT MESSAGE");
+			PDU cryptPDU = new PDU(8 + cryptByteWithZeroes.length);
+			cryptPDU.setByte(0, (byte) 0);
+			cryptPDU.setByte(1, (byte) '\0');
+			cryptPDU.setShort(2, (short) cryptByte.length);
+			cryptPDU.setShort(4, (short) text.length());
+			cryptPDU.setSubrange(6, new byte[] {'\0', '\0'});
+			cryptPDU.setSubrange(8, cryptByteWithZeroes);													//Set the crypted byteArray with appedned zeroes to slot 8 in cryptPDU
+			cryptPDU.setByte(1, Checksum.calc(cryptPDU.getBytes(), cryptPDU.length()));				//Calculate the checksum of the whole cryptPDU and add it to slot 1.
+			
+			message = cryptPDU.getBytes();
+			
+			break;
+			
+		case MsgTypes.COMPCRYPT:
+			System.out.println("MsgTypes.COMPCRYPT");
+			byte[] compByte2 = compress(text);
+			byte[] compByteWithZeroes2 = appendZeros(compByte2);
+			PDU compPDU2 = new PDU(8 + compByteWithZeroes2.length);
+			compPDU2.setByte(0, (byte) 0);
+			compPDU2.setByte(1, (byte) '\0');
+			compPDU2.setShort(2, (short) compByte2.length);
+			compPDU2.setShort(4, (short) text.length());
+			compPDU2.setSubrange(6, new byte[] {'\0', '\0'});
+			compPDU2.setSubrange(8, compByteWithZeroes2);
+			
+			byte checksum = Checksum.calc(compPDU2.getBytes(), compPDU2.length());
+			compPDU2.setByte(1, checksum);
+			
+			
+			byte[] cryptCompByte = compPDU2.getBytes();
+			int compByteLength = cryptCompByte.length;
+			Crypt.encrypt(cryptCompByte, compByteLength, cryptKey, cryptKey.length);
+			
+			byte[] cryptCompByteWithZeroes = appendZeros(cryptCompByte);
+			
+			PDU cryptCompPDU = new PDU(8 + cryptCompByteWithZeroes.length);
+			cryptCompPDU.setByte(0, (byte) 0);
+			cryptCompPDU.setByte(1, (byte) '\0');
+			cryptCompPDU.setShort(2, (short) cryptCompByte.length);
+			cryptCompPDU.setShort(4, (short) compByteLength);
+			cryptCompPDU.setSubrange(6, new byte[] {'\0', '\0'});
+			cryptCompPDU.setSubrange(12, cryptCompByteWithZeroes);
+			
+			message = cryptCompPDU.getBytes();
+			break;
+			
+		default:
+			throw new WrongCryptTypeException();
+			
+		}
+		
+		
+		PDU pdu = new PDU(12 + message.length);
+		pdu.setByte(0, (byte) OpCodes.MESSAGE);
+		pdu.setByte(1, (byte) type);
+		pdu.setByte(2, (byte) '\0');
+		pdu.setByte(3, (byte) '\0' );
+		pdu.setShort(4, (short) message.length);
+		pdu.setSubrange(6, new byte[] {'\0', '\0'});
+		pdu.setSubrange(8, new byte[] {'\0', '\0', '\0', '\0'});
+		pdu.setSubrange(12, message);
+		pdu.setByte(3, Checksum.calc(pdu.getBytes(), pdu.length()));
+
+		return pdu;
+	}
+	
+	public static byte[] compress(String str) throws UnsupportedEncodingException, IOException {
+        if (str == null || str.length() == 0) {
+            return null;
+        }
+        
+        ByteArrayOutputStream obj=new ByteArrayOutputStream();
+    	GZIPOutputStream gzip = new GZIPOutputStream(obj);
+		gzip.write(str.getBytes("UTF-8"));
+		gzip.close();
+        return obj.toByteArray();
+     }
+
+      public static String deCompress(byte[] bytes) throws IOException {
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        
+        GZIPInputStream gis;
+		gis = new GZIPInputStream(new ByteArrayInputStream(bytes));
+        BufferedReader bf = new BufferedReader(new InputStreamReader(gis, "UTF-8"));
+        String outStr = "";
+        String line;
+        
+        while ((line=bf.readLine())!=null) {
+          outStr += line;
+        }
+        
+        System.out.println("Output String lenght : " + outStr.length());
+        return outStr;
+     }
+	
+	
+	public static boolean checksum(PDU pdu, int index){
+		byte orgChecksum = (byte) pdu.getByte(index);
+		System.out.println("orgChecksum: " + orgChecksum);
+		pdu.setByte(index, (byte) '\0');
+		byte newChecksum = Checksum.calc(pdu.getBytes(), pdu.length() );
+		System.out.println("newChecksum: " + newChecksum);
+		pdu.setByte(index, (byte) orgChecksum);
+		return orgChecksum == newChecksum;	
+	}
+
+	public static PDU quit() {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.QUIT);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+
+	public static PDU join(String nick) {
+		int nickLenght = nick.length(); 
+		nick = appendZeros(nick);
+
+		/* Generate a PDU-message to use when
+		 * connecting  to the server. */
+		PDU message = new PDU(4 + nick.length());
+		message.setByte(0, (byte) OpCodes.JOIN);
+		message.setByte(1, (byte) nickLenght);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setSubrange(4, nick.getBytes());
+		
+		System.out.println("\nGenerate package JOIN");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of nick: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2));
+		System.out.println("Nick: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		System.out.println("Length of package: "+ message.length());
+		
+		
+		return message;
+	}
+	
+	public static PDU nicks(String[] strArray) {
+
+		String str = appendZeros(strArray);
+
+		PDU message = new PDU(4 + str.length());
+		message.setByte(0, (byte) OpCodes.NICKS);
+		message.setByte(1, (byte) strArray.length);
+		message.setShort(2, (short) str.length());
+		message.setSubrange(4, str.getBytes() );
+		
+		System.out.println("\nGenerate package NICKS");
+		System.out.println("OpCode: "+ (byte) message.getByte(0));
+		System.out.println("Number of connected clients: "+ (byte) message.getByte(1));
+		System.out.println("Size of Bytes: "+ (short) message.getShort(2));
+		System.out.println("String:" + str);
+		return message;
+	}
+	
+	public static PDU whois(String str) {
+		str = appendZeros(str);
+		
+		PDU message = new PDU(4 + str.length());
+		message.setByte(0, (byte) OpCodes.WHOIS);
+		message.setByte(1, (byte) str.length());
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setSubrange(4, str.getBytes());
+		
+		System.out.println("\nGenerate package WHOIS");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of nick: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2));
+		System.out.println("Nick: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		
+		return message;
+	}
+	
+	public static PDU uinfo(ToClient c) {
+	
+		/* Generate the PDU-message User Info. */
+		PDU message = new PDU(16);
+		message.setByte(0, (byte) OpCodes.UINFO);
+		message.setSubrange(1, new byte[]{'\0','\0','\0'});
+		message.setSubrange(4, c.getInetAddress().getAddress());
+		
+		
+		System.out.println("\nGenerate package UINFO");
+		System.out.println("OpCode: "+ (byte) message.getByte(0));
+		System.out.println("Pad: "+ new String( message.getSubrange(1, 3) ));
+		try {
+			System.out.println("IP: "+ InetAddress.getByAddress( message.getSubrange(4, 4) ).getHostAddress() );
+		} catch (UnknownHostException e) {
+			e.printStackTrace();
+		}
+
+		
+		return message;
+	}
+	
+	public static PDU ujoin(String nick, int timeStamp) {
+		
+		
+		
+		int nickLength = nick.length(); 
+		nick = appendZeros(nick);
+		
+		PDU message = new PDU(8 + nick.length());
+		message.setByte(0, (byte) OpCodes.UJOIN);
+		message.setByte(1, (byte) nickLength);
+		message.setSubrange(2, new byte[]{'\0','\0'});
+		message.setInt(4, timeStamp);
+		message.setSubrange(8, nick.getBytes());		
+		
+		System.out.println("\nGenerate package UJOIN");
+		System.out.println("OpCode: "+ (byte) message.getByte(0));
+		System.out.println("NickLength: "+ (byte) message.getByte(1));
+		System.out.println("Pad: "+ (short) message.getShort(2));
+		System.out.println("TimeStamp: "+ (int) message.getInt(4));
+		System.out.println("Nick: "+ new String(message.getSubrange(8, message.getByte(1))));
+		
+		return message;
+	}
+	
+	public static PDU uleave(String nick, int timeStamp) {
+		int nickLength = nick.length();
+		nick = appendZeros(nick);
+		
+		PDU message = new PDU(8 + nick.length());
+
+		message.setByte(0, (byte) OpCodes.ULEAVE);
+		message.setByte(1, (byte) nickLength);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setInt(4, timeStamp);
+		message.setSubrange(8, nick.getBytes());
+		
+		
+		System.out.println("\nGenerate package ULEAVE");
+		System.out.println("OpCode: "+ (byte) message.getByte(0));
+		System.out.println("NickLength: "+ (byte) message.getByte(1));
+		System.out.println("Pad: "+ (short) message.getShort(2));
+		System.out.println("TimeStamp: "+ (int) message.getInt(4));
+		System.out.println("Nick: "+ new String(message.getSubrange(8, message.getByte(1))));
+		
+		return message;
+	}
+	
+
+	public static PDU chnick(String nick) {
+		int nickLenght = nick.length(); 
+		nick = appendZeros(nick);
+		
+		
+		
+		PDU message = new PDU(4 + nick.length());
+		message.setByte(0, (byte) OpCodes.CHNICK);
+		message.setByte(1, (byte) nickLenght);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setSubrange(4, nick.getBytes());
+		
+		System.out.println("\nGenerate package CHNICK");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of nick: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2));
+		System.out.println("Nickname: " + new String( message.getSubrange(4, message.getByte(1))) );
+		
+		return message;
+	}
+	
+	public static PDU ucnick(String nickOld, String nickNew, int timeStamp ) {
+		nickOld = appendZeros(nickOld);
+		nickNew = appendZeros(nickNew);		
+		
+		PDU message = new PDU(8 + nickOld.length() + nickNew.length());
+		
+		message.setByte(0, (byte) OpCodes.UCNICK);
+		message.setByte(1, (byte) nickOld.length());
+		message.setByte(2, (byte) nickNew.length());
+		message.setByte(3, (byte) '\0');
+		message.setInt(4, timeStamp);
+		message.setSubrange(8, nickOld.getBytes());
+		message.setSubrange(8 + nickOld.length(), nickNew.getBytes());
+		
+		
+		System.out.println("\nGenerate package UCNICK");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("oldLength: "+ message.getByte(1));
+		System.out.println("newLength: "+ message.getByte(2));
+		System.out.println("Pad: "+ message.getByte(3));
+		System.out.println("TimeStamp: "+ message.getInt(4));
+		System.out.println("NickOld: "+ new String( message.getSubrange(8, message.getByte(1)) ));
+		System.out.println("NickNew: "+ new String( message.getSubrange(8+message.getByte(1),message.getByte(2)) ));
+		
+		
+		return message;
+	}
+	
+	/** Append \0 to the string and event out
+	 *  the package to even 4 bytes. */
+	private static String appendZeros(String[] strArray) {
+		String returnStr = "";
+		for(String str : strArray)
+			returnStr +=  (str + "\0");
+		
+		while (returnStr.length()%4 != 0)
+			returnStr += "\0";
+		
+		return returnStr;
+	}
+	
+	/** Append \0 to the string and event out
+	 *  the package to even 4 bytes. */
+	public static String appendZeros(String str) {
+		str += "\0";
+		
+		while (str.length()%4 != 0)
+			str += "\0";
+		
+		return str;
+	}
+	
+	public static byte[] appendZeros(byte[] bytes){
+		
+		int appendLength =  4 - (bytes.length  % 4);
+		byte[] b = new byte[bytes.length + appendLength];
+		
+		
+		for(int i = 0; i < bytes.length; i++ ){
+			b[i] = bytes[i];
+		}
+		
+		
+		
+		for(int j = 0; j < appendLength; j++){
+			b[j+bytes.length] = '\0';
+		}		
+		
+		
+		return b;
+	}
+	
+	
+	public static String[] removeZeros(String str) {
+		return str.split("\0");
+	}
+	
+	public static byte[] removeZeros(byte[] bytes) {
+		
+		
+		
+		int counter = 0;
+		while(bytes[bytes.length-counter-1] == '\0'){
+			counter++;
+			System.out.println(counter);
+		}
+		
+		if (counter == 0) {
+			return bytes;
+		}
+		
+		byte[] newBytes = new byte[bytes.length-counter];
+		
+		for (int i = 0; i < bytes.length-counter; i++) {
+			newBytes[i] = bytes[i];
+		}
+		return newBytes;
+	}
+	
+}

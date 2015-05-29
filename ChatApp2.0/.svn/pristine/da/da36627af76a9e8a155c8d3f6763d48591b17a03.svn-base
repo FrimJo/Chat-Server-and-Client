@@ -1,0 +1,25 @@
+package application;
+
+
+public interface GUI_Interface_Client{
+
+	public abstract void print(String str);
+	
+	public abstract void println(String str);
+	
+	
+	public abstract void receiveListOfServers(ToServer[] serverList);
+	
+	public abstract void receiveListOfNicks(User[] userList);
+	
+	public abstract void receiveTopic(String topic);
+	
+	public abstract void receiveNick(String nick);
+	
+	public void receiveUser(User user);
+	
+	public void removeUser(User user);
+	
+	public void updateUser(String nick, User oldUser);
+	
+}

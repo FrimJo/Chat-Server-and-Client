@@ -1,0 +1,175 @@
+package application;
+import java.io.IOException;
+import java.net.Socket;
+import java.net.UnknownHostException;
+import java.util.Collection;
+
+
+public class ToClient extends TCP{
+	
+	private static int			threadCounter = 0;
+	private String				nick;
+	
+	public ToClient(Socket socket) throws UnknownHostException, IOException{
+		super("Client thread " + threadCounter++, socket);
+	}
+
+	@Override
+	public void receive(byte[] bytes) throws IOException{
+		PDU pdu = new PDU(bytes, bytes.length);
+		switch (pdu.getByte(0)) {
+		case OpCodes.JOIN:
+			System.out.println("\nReceived PDU JOIN.");
+			System.out.println("OpCode: "+ (byte) pdu.getByte(0));
+			System.out.println("Length of nick: "+ (byte) pdu.getByte(1));
+			System.out.println("Pad: "+ (short) pdu.getShort(2));
+			this.nick = PDU_Factory.removeZeros( new String( pdu.getSubrange(4, pdu.getByte(1)) ) )[0];
+			System.out.println("Nick: "+ this.nick);
+			
+			Collection<ToClient> collection = Server.INSTANCE.getToClients();
+			
+			String[] strArr = new String[collection.size()+1];
+			strArr[0] = this.nick;
+			
+			int i = 1;
+			for (ToClient client : collection){
+				strArr[i] = client.getNick();
+			}
+			
+			Server.INSTANCE.addToClientList(this.nick, this);
+			
+			
+			System.out.println("Innehall i NickList");
+			for(String s : strArr){
+				System.out.println(s);
+			}
+			System.out.println("");
+			
+			sendPDU(PDU_Factory.nicks(strArr) );
+			System.out.println("NICKS message sent!");
+			
+			Server.INSTANCE.sendPDUToAllClients(PDU_Factory.ujoin(this.nick, (int) System.currentTimeMillis()));
+			
+			break;
+		
+		case OpCodes.WHOIS:
+			System.out.println("\nReceived PDU WHOIS.");
+			System.out.println("OpCode: "+ (byte) pdu.getByte(0));
+			System.out.println("Length of nick: "+ (byte) pdu.getByte(1));
+			System.out.println("Pad: "+ (short) pdu.getShort(2));
+			String nick = PDU_Factory.removeZeros(new String( pdu.getSubrange(4, pdu.getByte(1))) )[0];
+			System.out.println("Nick: "+ nick);
+			
+			ToClient c;
+			
+			if( (c = Server.INSTANCE.getClient( nick ) ) == null ){
+				System.out.println("Can't find " + nick + " in clientList.");
+			}else{
+				sendPDU(PDU_Factory.uinfo(c));
+				System.out.println("UINFO message sent!");
+			}
+			
+			break;
+			
+		case OpCodes.CHNICK:
+			System.out.println("\nReceived PDU CHNICK.");
+			System.out.println("OpCode: "+ pdu.getByte(0) );
+			System.out.println("Length of nick: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2));
+			System.out.println("Nickname: "+ new String( pdu.getSubrange(4, pdu.getByte(1))) );
+			
+			String oldNick = this.nick;
+			String newNick = PDU_Factory.removeZeros( new String(pdu.getSubrange(4, pdu.getByte(1))) )[0];
+			
+			
+			if (Server.INSTANCE.getClient(newNick) == null){
+				System.out.println("Didn't find " + newNick + " in clientList");
+			}else{
+				System.out.println("Found " + newNick + " in clientList");
+				int counter = 1;
+				while(Server.INSTANCE.getClient(newNick+counter) != null){
+					System.out.println("Found " + newNick+counter + " in clientList");
+					counter++;
+				}
+				System.out.println("Didn't find " + newNick+counter + " in clientList");
+				this.nick = newNick+counter;
+			}
+			
+			Server.INSTANCE.removeFromClientList(oldNick);
+			Server.INSTANCE.addToClientList(newNick, this);
+			this.nick = newNick;
+			
+			
+			Server.INSTANCE.sendPDUToAllClients(PDU_Factory.ucnick(oldNick, this.nick, (int) System.currentTimeMillis()/1000));
+			System.out.println("UINFO message sent!");
+			
+			
+			
+			System.out.println("");
+			System.out.println("----ClientList----");
+			for(ToClient client : Server.INSTANCE.getToClients()){
+				System.out.println(client.getNick());
+			}
+			System.out.println("-----------------");
+			System.out.println("");
+			break;
+			
+		case OpCodes.CHTOPIC:
+			System.out.println("\nReceived PDU CHTOPIC.");
+			System.out.println("OpCode: "+ pdu.getByte(0) );
+			System.out.println("Length of topic: "+ pdu.getByte(1));
+			System.out.println("Pad: "+ pdu.getShort(2));
+			System.out.println("Topic: "+ new String( pdu.getSubrange(4, pdu.getByte(1))) );
+			
+			String topic = PDU_Factory.removeZeros( new String( pdu.getSubrange(4, pdu.getByte(1))) )[0];
+			
+			Server.INSTANCE.setTopic(topic);
+			//Server.INSTANCE.sendPDUToDNS(pdu);
+			System.out.println("CHTOPIC message sent to DNS!");
+			Server.INSTANCE.sendPDUToAllClients(pdu);
+			System.out.println("CHTOPIC message sent to all Clients!");
+			
+			break;
+			
+		case OpCodes.QUIT:
+			System.out.println("\nReceived PDU QUIT.");
+			System.out.println("OpCode: "+ pdu.getByte(0) );
+			System.out.println("Client disconnected");
+			Server.INSTANCE.removeFromClientList(this.nick);
+			Server.INSTANCE.sendPDUToAllClients(PDU_Factory.uleave(this.nick, (int) System.currentTimeMillis()));
+			System.out.println("ULEAVE message sent to all Clients!");
+			
+			disconnect();
+			break;
+		case OpCodes.MESSAGE:
+			System.out.println("\nReceived PDU MESSAGE.");
+			System.out.println("OpCode: "+ pdu.getByte(0) );
+			System.out.println("Meddelandetyp: "+ pdu.getByte(1));
+			System.out.println("Nick l?ngd: "+ pdu.getByte(2));
+			System.out.println("Checksumma: "+ pdu.getByte(3));
+			System.out.println("Meddelandel?ngd: "+ pdu.getShort(4));
+			System.out.println("Pad: "+ pdu.getShort(4));
+			System.out.println("Tidsst?pel: "+ pdu.getInt(8) );
+			System.out.println("Meddelande: "+ pdu.getSubrange(12, pdu.getShort(4)) );
+			System.out.println("Nickname: "+ pdu.getSubrange(12 + pdu.getShort(4), pdu.getByte(2)) );
+			System.out.println("\nReceived PDU MESSAGE.");
+			Server.INSTANCE.sendPDUToAllClients(pdu);
+			System.out.println("MESSAGE message sent to all clients!");
+			
+			break;
+
+		default:
+			System.out.println("Wrong OpCode received from server.");
+			break;
+		}
+	}
+	
+	public void sendPDU(PDU pdu) throws IOException{
+		super.send(pdu.getBytes());
+	}
+	
+	public String getNick(){
+		return this.nick;
+	}
+
+}

@@ -1,0 +1,42 @@
+package application;
+
+public class User {
+	private String			nick;
+	private String			client_ip;
+	private int				client_port;
+	
+	public User(String nick){
+		this.nick = nick;
+	}
+	
+	public String getNick(){ return this.nick; }	
+	public void setNick(String nickName){ this.nick = nickName; }
+	
+	public String getIP(){ return this.client_ip; }
+	public int getPort(){ return this.client_port; }
+	
+	public void setIP( String client_ip ){ this.client_ip = client_ip; }
+	public void setPort(int client_port){ this.client_port = client_port; }
+	
+	@Override
+	public boolean equals(Object o){
+		if(o == null)
+			return false;
+		
+		if(o.getClass() != this.getClass())
+			return false;
+		
+		User u = (User) o;
+		
+		if(!u.getNick().equals(this.nick))
+			return false;
+		
+		return true;
+	}
+	
+	public String toString(){
+		return this.nick;
+	}
+	
+
+}

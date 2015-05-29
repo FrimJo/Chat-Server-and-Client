@@ -1,0 +1,202 @@
+package application;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+import java.sql.Time;
+import java.util.ArrayList;
+
+
+/** Singleton */
+public enum Client {
+	INSTANCE;
+	
+	private final String				dns_ip = "salt.cs.umu.se";
+	private final int					dns_port = 40000;
+	
+	private ArrayList<ToServer>			serverList;
+	private GUI_Interface_Client		gui;
+	private ToDNS						dns_server;
+	private ArrayList<ServerInfo>	    availableServers;
+	
+	private Client(){ }
+	
+	public void init(GUI_Interface_Client gui){
+		this.serverList = new ArrayList<ToServer>();
+		this.gui = gui;
+		
+		this.availableServers = new ArrayList<ServerInfo>();
+		
+		try {
+			this.dns_server = new ToDNS(dns_ip, dns_port);
+			println("Connected to DNS server.");
+		} catch (UnknownHostException e) {
+			println("Couldn't connect to DNS server.");
+		} catch (SocketException e1){
+			println("Client - SocketException.");
+		}
+		
+	}
+	
+	public void connectToServer(String server_ip, int server_port, String nick) throws IOException, UnknownHostException{
+		
+		ToServer s = new ToServer(server_ip, server_port , nick);
+		
+		this.serverList.add(s);
+	}
+	
+	/** Send a IP to a DNS through UDP-protocol, to get
+	 * corresponding host name. */
+	public String getNameFromIP(String ip){
+		return "";
+	}
+	
+	/** Returns the current serverlist. */
+	public ArrayList<ToServer> getServerList(){
+		return this.serverList;
+	}
+	
+	public void disconnectFromServer(int index) throws IOException{
+		this.serverList.get(index).disconnect();
+	}
+	
+	public void shutDown() throws IOException{
+		this.dns_server.disconnect();
+		for (ToServer s: this.serverList){
+			s.disconnect();
+		}
+	}
+	
+	public void getListOfServers(){
+		this.dns_server.getList();
+	}
+	
+	public void sendListOfServers(){
+		this.gui.receiveListOfServers(this.availableServers);
+	}
+	
+	public synchronized void sendListOfNicks(String[] nickList){
+		this.gui.receiveListOfNicks(nickList);
+	}
+	
+	public void sendPDUToDNS(PDU pdu) throws IOException{
+		this.dns_server.sendPDU(pdu);
+	}
+	
+	
+	public void getUserInfo(String nick, int serverNr) {
+		try {
+			this.serverList.get(serverNr).getUserInfo(nick);
+		} catch (IOException e) {
+			println("3 - Client IOException!");
+		}
+	}
+	
+	public void changeNick(String nick, int serverNr) {
+			try {
+				this.serverList.get(serverNr).changeNickName(nick);
+			} catch (IOException e) {
+				println("4 - Client IOException!");
+				e.printStackTrace();
+			}
+	}
+	
+	public void changeTopic(String topic, int serverNr) {
+
+		try{
+			this.serverList.get(serverNr).changeTopic(topic);
+		} catch (IOException e) {
+			println("5 - Client IOException!");
+		}
+	}
+	
+	public void sendMessage(int serverNr, int type, String text) {
+
+			try {
+				this.serverList.get(serverNr).sendMessage(type, text);
+			} catch (IOException e) {
+				println("6 - Client IOException!");
+			}
+
+	}
+
+	public void print(String str){
+		this.gui.print(str);
+	}
+	
+	public void println(String str){
+		this.gui.println(str);
+	}
+	
+	public void in(String str){
+		this.gui.in(str);
+	}
+	
+	private static class ToDNS extends UDP{
+		
+		public ToDNS(String dns_ip, int dns_port) throws UnknownHostException, SocketException{
+			super("DNS Thread", dns_ip, dns_port);
+			getList();
+		}
+		
+		@Override
+		public void receivePDU(PDU pdu) throws IOException {
+			switch (pdu.getByte(0)) {
+				
+			case OpCodes.SLIST:
+				Client.INSTANCE.println("Received a SLIST.\n");
+
+				int nr_servers = pdu.getShort(2);
+				Client.INSTANCE.println("Nr of Servers: " + nr_servers);
+				
+				int index = 4;
+				for (int i = 1; i < nr_servers+1; i++){
+					Client.INSTANCE.println("-------NR-"+ i +"------");
+					InetAddress server_ip = InetAddress.getByAddress(pdu.getSubrange(index, 4));
+					Client.INSTANCE.println("Server IP: " + server_ip.getHostAddress() );
+					int server_port = pdu.getShort(index+4);
+					Client.INSTANCE.println("Server Port: " + server_port);
+					int nr_clients = pdu.getByte(index+6);
+					Client.INSTANCE.println("Number of Clients: " + nr_clients);
+					int topic_length = pdu.getByte(index+7);
+					Client.INSTANCE.println("Topic length: " + topic_length);
+					String topic = new String( pdu.getSubrange(index+8, topic_length) );
+					Client.INSTANCE.println("Topic: " + topic + "\n");
+					
+					topic = PDU_Factory.removeZeros(topic)[0];
+					
+					Client.INSTANCE.availableServers.add(new ServerInfo(server_ip, server_port, nr_clients, topic));
+					
+					index += 9+topic_length+(topic_length + 1 %4);
+				}
+				
+				Client.INSTANCE.sendListOfServers();
+
+				break;
+			default:
+				Client.INSTANCE.println("Wrong OpCode received from server! ");
+				break;
+			}
+			
+		}
+		
+		public void getList(){
+			try {
+				sendPDU(PDU_Factory.getlist());
+			} catch (IOException e) {
+				Client.INSTANCE.println("5 - Client - DNS - IOException!");
+			}
+		}
+		
+	}
+	
+	public static void main(String[]args){
+		
+		/* Initiate server with a GUI class
+		 * witch extends GUI_Interface as an
+		 * parameter. Then launch server. */
+		//Client.INSTANCE.init(new GUI_Console_Client());
+		Client.INSTANCE.init(new GUI_Swing_Client());
+		
+	}
+}

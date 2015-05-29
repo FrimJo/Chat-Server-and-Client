@@ -1,0 +1,14 @@
+package application;
+
+public class Message {
+	private String nickName;
+	private String context;
+	
+	public Message(String nickName, String context){
+		this.nickName	= nickName;
+		this.context	= context;
+	}
+	
+	public String getNickName(){ return this.nickName; }
+	public String getContext(){ return this.context; }
+}

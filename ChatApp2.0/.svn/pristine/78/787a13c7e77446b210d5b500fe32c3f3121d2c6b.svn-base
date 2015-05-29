@@ -1,0 +1,325 @@
+package application;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
+import java.util.Collection;
+
+
+public class PDU_Factory {
+	
+	public static PDU reg(InetAddress dns_address, int dns_port, String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		PDU message = new PDU(8 + topic.length());
+		message.setByte(0, (byte) OpCodes.REG);
+		message.setByte(1, (byte) length);
+		message.setShort(2, (short) dns_port);
+		message.setSubrange(4, dns_address.getAddress());
+		message.setSubrange(8, topic.getBytes());
+		
+		return message;
+	}
+	
+	public static PDU alive(int id, int nrOfClients) {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.ALIVE);
+		message.setByte(1, (byte) nrOfClients);
+		message.setShort(2, (short) id);
+		
+		return message;
+	}
+	
+	public static PDU chtopic(String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		
+		PDU message = new PDU(4 + topic.length());
+		
+		message.setByte(0, (byte) OpCodes.CHTOPIC);
+		message.setByte(1, (byte) length);
+		message.setSubrange(2, new byte[]{'\0','\0'} );
+		message.setSubrange(4, topic.getBytes());
+		
+		System.out.println("\nGenerate package CHTOPIC");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of topic: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2) );
+		System.out.println("Topic: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		
+		return message;
+	}
+	
+	public static PDU chtopic(int id, String topic) {
+		byte length = (byte) topic.length();
+		topic = appendZeros(topic);
+		
+		PDU message = new PDU(4 + topic.length());
+		
+		message.setByte(0, (byte) OpCodes.CHTOPIC);
+		message.setByte(1, (byte) length);
+		message.setShort(2, (short) id );
+		message.setSubrange(4, topic.getBytes());
+		
+		System.out.println("\nGenerate package CHTOPIC");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of topic: "+ message.getByte(1));
+		System.out.println("ID: "+ message.getShort(2) );
+		System.out.println("Topic: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		
+		return message;
+	}
+	
+	public static PDU notreg() {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.NOTREG);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+	
+	public static PDU getlist() {
+		
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.GETLIST);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+	
+	public static PDU message(int type, int timeStamp, String nick, String text) {
+		int nickLength = nick.length();
+		int textLength = text.length();
+		
+		nick = appendZeros(nick);
+		text = appendZeros(text);
+		
+		PDU message = new PDU(12 + nick.length() + text.length());
+		
+		message.setByte(0, (byte) OpCodes.MESSAGE);
+		message.setByte(1, (byte) type);
+		message.setByte(2, (byte) nickLength);
+		
+		message.setShort(4, (short) textLength);
+		message.setSubrange(6, new byte[] {'\0', '\0'});
+		message.setInt(8, timeStamp);
+		message.setSubrange(12, text.getBytes());
+		message.setSubrange(12+text.length(), nick.getBytes());
+		
+		byte checksum = Checksum.calc(message.getBytes(), 12 + nick.length() + text.length());
+		
+		message.setByte(3, checksum);
+		
+		return message;
+	}
+	
+	public static PDU quit(String nick) {
+		PDU message = new PDU(4);
+		
+		message.setByte(0, (byte) OpCodes.QUIT);
+		message.setSubrange(1, new byte[] {'\0', '\0', '\0'});
+
+		return message;
+	}
+		
+
+	
+	
+	public static PDU join(String nick) {
+		int nickLenght = nick.length(); 
+		nick = appendZeros(nick);
+
+		/* Generate a PDU-message to use when
+		 * connecting  to the server. */
+		PDU message = new PDU(4 + nick.length());
+		message.setByte(0, (byte) OpCodes.JOIN);
+		message.setByte(1, (byte) nickLenght);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setSubrange(4, nick.getBytes());
+		
+		System.out.println("\nGenerate package JOIN");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of nick: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2));
+		System.out.println("Nick: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		System.out.println("Length of package: "+ message.length());
+		
+		
+		return message;
+	}
+	
+	public static PDU nicks(Collection<ToClient> clients) {
+		
+		String[] strArray = new String[ clients.size() ];
+		int i = 0;
+		for(ToClient c : clients){
+			strArray[i] = c.getNick();
+			i++;
+		}
+
+		String str = appendZeros(strArray);
+
+		PDU message = new PDU(4 + str.length());
+		message.setByte(0, (byte) OpCodes.NICKS);
+		message.setByte(1, (byte) strArray.length);
+		message.setShort(2, (short) str.length());
+		message.setSubrange(4, str.getBytes() );
+		
+		System.out.println("\nGenerate package NICKS");
+		System.out.println("OpCode: "+ (byte) message.getByte(0));
+		System.out.println("Number of connected clients: "+ (byte) message.getByte(1));
+		System.out.println("Size of Bytes: "+ (short) message.getShort(2));
+		System.out.println("String:" + str);
+		return message;
+	}
+	
+	public static PDU whois(String str) {
+		str = appendZeros(str);
+		
+		PDU message = new PDU(4 + str.length());
+		message.setByte(0, (byte) OpCodes.WHOIS);
+		message.setByte(1, (byte) str.length());
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setSubrange(4, str.getBytes());
+		
+		System.out.println("\nGenerate package WHOIS");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of nick: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2));
+		System.out.println("Nick: " + new String( message.getSubrange(4, message.getByte(1)) ));
+		
+		return message;
+	}
+	
+	public static PDU uinfo(ToClient c) {
+	
+		/* Generate the PDU-message User Info. */
+		PDU message = new PDU(16);
+		message.setByte(0, (byte) OpCodes.UINFO);
+		message.setSubrange(1, new byte[]{'\0','\0','\0'});
+		message.setSubrange(4, c.getInetAddress().getAddress());
+		
+		
+		System.out.println("\nGenerate package UINFO");
+		System.out.println("OpCode: "+ (byte) message.getByte(0));
+		System.out.println("Pad: "+ new String( message.getSubrange(1, 3) ));
+		try {
+			System.out.println("IP: "+ InetAddress.getByAddress( message.getSubrange(4, 4) ).getHostAddress() );
+		} catch (UnknownHostException e) {
+			e.printStackTrace();
+		}
+
+		
+		return message;
+	}
+	
+	public static PDU ujoin(String nick, int timeStamp) {
+		
+		int nickLength = nick.length(); 
+		nick = appendZeros(nick);
+		
+		PDU message = new PDU(8 + nick.length());
+		message.setByte(0, (byte) OpCodes.UJOIN);
+		message.setByte(1, (byte) nickLength);
+		message.setSubrange(2, new byte[]{'\0','\0'});
+		message.setInt(4, timeStamp);
+		message.setSubrange(8, nick.getBytes());		
+		
+		return message;
+	}
+	
+	public static PDU uleave(String nick, int timeStamp) {
+		int nickLength = nick.length();
+		nick = appendZeros(nick);
+		
+		PDU message = new PDU(8 + nick.length());
+
+		message.setByte(0, (byte) OpCodes.ULEAVE);
+		message.setByte(1, (byte) nickLength);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setInt(4, timeStamp);
+		message.setSubrange(8, nick.getBytes());
+		
+		return message;
+	}
+	
+
+	public static PDU chnick(String nick) {
+		int nickLenght = nick.length(); 
+		nick = appendZeros(nick);
+		
+		
+		
+		PDU message = new PDU(4 + nick.length());
+		message.setByte(0, (byte) OpCodes.CHNICK);
+		message.setByte(1, (byte) nickLenght);
+		message.setSubrange(2, new byte[] {'\0', '\0'});
+		message.setSubrange(4, nick.getBytes());
+		
+		System.out.println("\nGenerate package CHNICK");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("Length of nick: "+ message.getByte(1));
+		System.out.println("Pad: "+ message.getShort(2));
+		System.out.println("Nickname: " + new String( message.getSubrange(4, message.getByte(1))) );
+		
+		return message;
+	}
+	
+	public static PDU ucnick(String nickOld, String nickNew, int timeStamp ) {
+		nickOld = appendZeros(nickOld);
+		nickNew = appendZeros(nickNew);		
+		
+		PDU message = new PDU(8 + nickOld.length() + nickNew.length());
+		
+		message.setByte(0, (byte) OpCodes.UCNICK);
+		message.setByte(1, (byte) nickOld.length());
+		message.setByte(2, (byte) nickNew.length());
+		message.setByte(3, (byte) '\0');
+		message.setInt(4, timeStamp);
+		message.setSubrange(8, nickOld.getBytes());
+		message.setSubrange(8 + nickOld.length(), nickNew.getBytes());
+		
+		
+		System.out.println("\nGenerate package UCNICK");
+		System.out.println("OpCode: "+ message.getByte(0));
+		System.out.println("oldLength: "+ message.getByte(1));
+		System.out.println("newLength: "+ message.getByte(2));
+		System.out.println("Pad: "+ message.getByte(3));
+		System.out.println("TimeStamp: "+ message.getInt(4));
+		System.out.println("NickOld: "+ new String( message.getSubrange(8, message.getByte(1)) ));
+		System.out.println("NickNew: "+ new String( message.getSubrange(8+message.getByte(1),message.getByte(2)) ));
+		
+		
+		return message;
+	}
+	
+	/** Append \0 to the string and event out
+	 *  the package to even 4 bytes. */
+	private static String appendZeros(String[] strArray) {
+		String returnStr = "";
+		for(String str : strArray)
+			returnStr +=  (str + "\0");
+		
+		while (returnStr.length()%4 != 0)
+			returnStr += "\0";
+		
+		return returnStr;
+	}
+	
+	/** Append \0 to the string and event out
+	 *  the package to even 4 bytes. */
+	private static String appendZeros(String str) {
+		str += "\0";
+		
+		while (str.length()%4 != 0)
+			str += "\0";
+		
+		return str;
+	}
+	
+	
+	public static String[] removeZeros(String str) {
+		return str.split("\0");
+	}
+}

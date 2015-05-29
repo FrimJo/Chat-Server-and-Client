@@ -1,0 +1,23 @@
+package application;
+
+import static org.junit.Assert.*;
+
+import org.junit.Test;
+
+public class PDU_FactoryTest {
+
+	@Test
+	public void testRemoveZerosByteArray() {
+		byte[] bytes = {'\0','\0',3,5,2,5,'\0','\0'};
+		byte[] bytesAfterRemovedZeros = PDU_Factory.removeZeros(bytes);
+		assertEquals(4, bytesAfterRemovedZeros.length);
+		
+		bytes = new byte[]{3,5,2,5,'\0','\0','\0','\0'};
+		bytesAfterRemovedZeros = PDU_Factory.removeZeros(bytes);
+		assertEquals(4, bytesAfterRemovedZeros.length);
+		
+		bytes = new byte[]{'\0','\0','\0','\0',3,5,2,5};
+		bytesAfterRemovedZeros = PDU_Factory.removeZeros(bytes);
+		assertEquals(4, bytesAfterRemovedZeros.length);
+	}
+}

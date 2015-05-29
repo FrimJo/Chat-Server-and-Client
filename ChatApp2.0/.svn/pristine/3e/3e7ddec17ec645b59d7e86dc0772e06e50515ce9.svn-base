@@ -1,0 +1,252 @@
+package application;
+import java.io.IOException;
+import java.net.BindException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
+import java.net.UnknownHostException;
+import java.util.Collection;
+import java.util.HashMap;
+
+
+/** Singleton */
+
+public enum Server{
+	INSTANCE;
+	
+	private final int				MAX_CONNECTIONS = 255;
+	private final String			dns_ip = "salt.cs.umu.se";
+	private final int				dns_port = 40000;
+	
+	private final String			server_ip = "130.239.239.234";
+	private int						server_port = 2000;
+	
+	private boolean					stop = false;
+	private String					topic;
+	private int						ID;
+	private ServerSocket			welcomeSocket;
+	private GUI_Interface 			gui;
+	private ToDNS					dns_server;
+	
+	private HashMap<String,ToClient> clientList;
+	
+	private Server(){ }
+	
+	public void init(GUI_Interface gui){
+		this.gui = gui;
+		this.topic = "History";
+		println("Initializing server.");
+		
+		
+		while(!stop){
+			println("Setup up welcome socket at TCP port: " + this.server_port);
+			try {
+				this.welcomeSocket = new ServerSocket(this.server_port);
+				this.welcomeSocket.setSoTimeout(5000);
+				break;
+			} catch (BindException e){
+				println("Port " + server_port + " is occupied.");
+				print("Pleas enter another port to connect to: ");
+				
+				this.server_port = Integer.parseInt( in() );
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+		
+		try {
+			this.dns_server = new ToDNS(dns_ip, dns_port);
+		} catch (UnknownHostException e) {
+			println("Couldn't connect to DNS server.");
+		} catch (SocketException e1){
+			println("Server - SocketException");
+		}
+		
+		this.clientList = new HashMap<String,ToClient>(MAX_CONNECTIONS);
+		
+		gui.start();
+		
+		while(!this.stop){
+			try {
+				ToClient c = new ToClient( this.welcomeSocket.accept() );
+				println("Client connected from TEST: " + c.getInetAddress() + ":" + c.getPort());
+			} catch (SocketTimeoutException e) {
+				/* Catches the timeout, but keeps the thread running. */
+			} catch (IOException e2) {
+				println("A client is trying to connect, can't establish a connection.");
+			}
+		}
+		
+		try {
+			if(this.clientList.size() > 0)
+				println("Disconnecting all clients from the server.");
+			for ( ToClient c : this.clientList.values() ){
+				c.disconnect();
+			}
+			this.welcomeSocket.close();
+		} catch (IOException e) {
+			Server.INSTANCE.println("Couldn't close the WelcomeSocket socket.");
+		}
+		
+		this.dns_server.disconnect();
+				
+		Server.INSTANCE.println("System stoped.");
+	}
+	
+	/** Changes the topic of the server, and then provide all
+	 * the clients and the dns server with the new topic. 
+	 * @throws IOException */
+	public void setTopic(String topic){
+		this.topic = topic;
+		this.dns_server.changeTopic();
+	}
+	
+	public synchronized void sendPDUToAllClients(PDU pdu) throws IOException{
+		for(ToClient c : this.clientList.values()){
+			c.sendPDU(pdu);
+		}
+	}
+	
+	public synchronized void sendPDUToDNS(PDU pdu) throws IOException{
+		this.dns_server.sendPDU(pdu);
+	}
+	
+	public String getTopic(){ return this.topic; }
+	
+	public int getServer_port(){ return this.server_port; }
+	public String getServer_ip(){ return this.server_ip; }
+	
+	public void shutDown(){
+		this.stop = true;
+		try {
+			this.welcomeSocket.close();
+		} catch (IOException e) {
+			//Catches the IOException but does nothing.
+		}
+		
+	}
+	
+	
+	public synchronized ToClient addToClientList(String s, ToClient c){
+		System.out.println("Added client " + s + " to clientList.");
+		return this.clientList.put(s, c);
+	}
+	
+	public synchronized void removeFromClientList(String s){
+		ToClient c;
+		if( (c = this.clientList.remove(s)) == null)
+			System.out.println("Couldn't find " + s + " in clientList.");
+		else
+			System.out.println("Removed client " + c.getNick() + " from clientList.");
+	}
+	
+	public synchronized Collection<ToClient> getToClients(){
+		return this.clientList.values();
+	}
+	
+	public synchronized ToClient getClient(String infoNick){
+		System.out.println("Searching client " + infoNick + " in clientList.");
+		return this.clientList.get(infoNick);
+	}
+	
+	public synchronized void print(String str){
+		this.gui.print(str);
+	}
+	
+	public synchronized void println(String str){
+		this.gui.println(str);
+	}
+	
+	public synchronized String in(){
+		return this.gui.in();
+	}
+	
+	private static class ToDNS extends UDP{
+		
+		private Thread alive;
+		
+		public ToDNS(String dns_ip, int dns_port) throws UnknownHostException, SocketException{
+			super("DNS Thread", dns_ip, dns_port);
+			try{
+				Server.INSTANCE.println("Connecting to DNS server.");
+				reg();
+			} catch (IOException e) {
+				Server.INSTANCE.println("Couldn't send register message to DNS server.");
+				disconnect();
+			}finally{
+				alive();	
+			}
+		}
+		
+		@Override
+		public void receivePDU(PDU pdu) throws IOException {
+			switch (pdu.getByte(0)) {
+			case OpCodes.ACK:
+				Server.INSTANCE.println("Received PDU ACK from DNS");
+				Server.INSTANCE.println("OpCode: "+ pdu.getByte(0));
+				Server.INSTANCE.println("Pad: "+ pdu.getByte(1));
+				Server.INSTANCE.println("ID-nummer: "+ pdu.getShort(2));
+				Server.INSTANCE.ID = pdu.getShort(2);
+				break;
+				
+			case OpCodes.NOTREG:
+				Server.INSTANCE.println("Server is not registered with the DNS server.");
+				Server.INSTANCE.println("Trying to reregister.");
+				reg();
+				break;
+				
+			default:
+				Server.INSTANCE.println("Wrong OpCode received from server.");
+				break;
+			}
+			
+		}
+		
+		public void reg() throws IOException{
+			sendPDU(PDU_Factory.reg(InetAddress.getByName( Server.INSTANCE.server_ip ), Server.INSTANCE.server_port, Server.INSTANCE.topic));
+		}
+		
+		public void alive(){
+			this.alive = new Thread("Alive Thread"){
+				@Override
+				public void run(){
+					while(!ToDNS.this.stop){
+						try {
+							sendPDU(PDU_Factory.alive(Server.INSTANCE.ID, Server.INSTANCE.getToClients().size()));
+							Server.INSTANCE.println("Send alive message to DNS server");
+							sleep(30000);
+						} catch (IOException e) {
+							Server.INSTANCE.println("Couldn't send alive message to DNS server.");
+						} catch (InterruptedException e) {
+							//Catches the InterruptedException but keeps the thread running.
+						}
+					}
+					Server.INSTANCE.println("Alive Closed");
+				}
+			};
+			this.alive.start();
+		}
+		
+		public void changeTopic(){
+			try {
+				Server.INSTANCE.println("Send change topic message to DNS server");
+				sendPDU(PDU_Factory.chtopic(Server.INSTANCE.ID, Server.INSTANCE.topic));
+			} catch (IOException e) {
+				Server.INSTANCE.println("Couldn't send change topic message to DNS server.");
+			}
+		}
+		
+		@Override
+		public void disconnect(){
+			super.disconnect();
+			this.alive.interrupt();
+		}
+	}
+	
+	
+	public static void main(String[] args) throws Exception{
+		/* Initiating GUI and launch server. */
+		Server.INSTANCE.init(new GUI_Console_Server());
+	}
+}

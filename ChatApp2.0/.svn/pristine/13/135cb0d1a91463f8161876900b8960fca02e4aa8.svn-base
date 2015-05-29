@@ -1,0 +1,182 @@
+package application;
+
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.event.ActionEvent;
+import javafx.fxml.FXML;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.ListView;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.Button;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
+
+import java.io.IOException;
+import java.net.URL;
+import java.sql.Time;
+import java.util.ArrayList;
+import java.util.ResourceBundle;
+
+import javafx.scene.input.ContextMenuEvent;
+import javafx.scene.input.MouseEvent;
+
+
+public class Client_GUI implements GUI_Interface_Client{
+
+	private Time time;
+	
+    @FXML
+    private ResourceBundle resources;
+
+    @FXML
+    private URL location;
+
+    @FXML
+    private MenuItem contextConnect;
+    
+    @FXML
+    private ContextMenu nickViewContext;
+    
+    @FXML
+    private ContextMenu userViewContext;
+    
+    @FXML
+    private MenuItem contextWho;
+    
+    @FXML
+    private Button exitButton;
+    
+    @FXML
+    private ListView<ServerInfo> ServerView;
+    
+    @FXML
+    private ListView<String> nickView;
+    
+    @FXML
+    private TextField inputField;
+    
+    @FXML
+    private TextArea outputArea;
+    
+    @FXML
+    void test(ContextMenuEvent event) {
+    	println("test");
+    }
+    
+    @FXML
+    void connectClicked(ActionEvent event) {
+    	
+    	ServerInfo selected = ServerView.getSelectionModel().getSelectedItem();
+    	
+    	String server_ip = selected.getInetAddress().getHostAddress();
+    	int server_port = selected.getServerPort();
+    	String nick = "Fredde";
+    
+    	Client.INSTANCE.connectToServer(server_ip, server_port, nick);
+
+    }
+    
+    @FXML
+    void whoClicked(ActionEvent event) {
+    	String nick = this.nickView.getSelectionModel().getSelectedItem();
+    	Client.INSTANCE.getUserInfo(nick, 0);
+    }
+
+    @FXML
+    void exitPressed(ActionEvent event) {
+    	try {
+			Client.INSTANCE.shutDown();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+    	Platform.exit();
+    }
+    
+    @FXML
+    void inputEnter(ActionEvent event) {
+    	String command = this.inputField.getText();
+		if( command.split(" ", 2)[0].equals("connect") ){
+			String ipAndPort = command.split(" ", 2)[1];
+			String server_ip = ipAndPort.split(":", 2)[0];
+			
+			int server_port = Integer.parseInt( ipAndPort.split(":", 2)[1] );
+			Client.INSTANCE.connectToServer(server_ip, server_port, "Fredde");
+		}
+		this.inputField.setText("");
+    }
+    
+    @FXML
+    void serverListClicked(MouseEvent event) {
+    	if( this.ServerView.getSelectionModel().getSelectedItem() != null  ){
+    		this.contextConnect.setVisible(true);	
+    	}
+    }
+    
+    @FXML
+    void nickListClicked(MouseEvent event) {
+    	if( this.nickView.getSelectionModel().getSelectedItem() != null  ){
+    		this.contextWho.setVisible(true);
+    	}
+    }
+    
+    @FXML
+    void initialize() {
+    	assert ServerView != null : "fx:id=\"ServerView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert contextConnect != null : "fx:id=\"contextConnect\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert contextWho != null : "fx:id=\"contextWho\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert exitButton != null : "fx:id=\"exitButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert inputField != null : "fx:id=\"inputField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickView != null : "fx:id=\"nickView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickViewContext != null : "fx:id=\"nickViewContext\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert outputArea != null : "fx:id=\"outputArea\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert userViewContext != null : "fx:id=\"userViewContext\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        
+        this.time = new Time(System.currentTimeMillis());
+        
+        this.contextConnect.setVisible(false);
+        this.contextWho.setVisible(false);
+        
+        Client.INSTANCE.init(this);
+    }
+
+
+	@Override
+	public void print(String str) {
+		this.outputArea.appendText(str);
+	}
+
+
+	@Override
+	public void println(String str) {
+		print("(" +  this.time.toString() + ") " + str +'\n');
+	}
+
+
+	@Override
+	public void start() {
+		// TODO Auto-generated method stub
+		
+	}
+	
+	@Override
+	public String in(String str) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+	
+	@Override
+	public void receiveListOfServers(ArrayList<ServerInfo> serverList){
+		ObservableList<ServerInfo> servers = FXCollections.observableArrayList();
+		servers.addAll(serverList);
+		this.ServerView.setItems(servers);
+	}
+	
+	@Override
+	public void receiveListOfNicks(String[] nickList){
+		ObservableList<String> nicks = FXCollections.observableArrayList();
+		nicks.addAll(nickList);
+		this.nickView.setItems(nicks);
+	}
+}
+

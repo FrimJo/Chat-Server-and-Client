@@ -1,0 +1,2 @@
+package application;import PDU_Factory;byte[] a = {'\0','\0'};
+a = PDU_Factory.removeZeroes(a);

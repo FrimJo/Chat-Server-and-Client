@@ -1,0 +1,94 @@
+package application;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.UnknownHostException;
+
+
+public abstract class TCP extends Thread{
+	
+	private boolean					stop = false;
+	
+	protected String				server_ip;
+	protected int					server_port;
+	protected Socket				socket;
+	protected DataOutputStream		outStream;
+	protected InputStream			inStream;
+	protected Thread				waitThread;
+	
+	/** This will be run by the client. */
+	public TCP(String thread_name, String server_ip, int server_port){
+		super(thread_name);
+		this.server_ip = server_ip;
+		this.server_port = server_port;
+	}
+	
+	/** This will be run by the server. */
+	public TCP(String thread_name, Socket socket){
+		super(thread_name);
+		this.socket = socket;
+		this.server_ip = socket.getInetAddress().getHostAddress();
+		this.server_port = socket.getPort();
+	}
+	
+	/** This will be run by the server and client. */
+	public void connect() throws UnknownHostException, IOException{
+		
+		/* If Client runs this method, it will add socket.
+		 * If Server runs this method, it will not add socket. */
+		if(this.socket == null || this.socket.isClosed()){
+			this.socket = new Socket(this.server_ip, this.server_port);	
+		}
+		/* Both client and server need input-, output-streams. */
+		this.outStream = new DataOutputStream(this.socket.getOutputStream());
+		this.inStream = this.socket.getInputStream();
+		
+		start();
+	}
+	
+	@Override
+	public void run(){	
+		byte[] streamBuffer = new byte[65535];
+		int bytesRead;
+		while(!stop){
+			try {
+				if( (bytesRead = this.inStream.read(streamBuffer) ) == -1){
+					disconnect();
+				}else{
+					try{
+						receive(streamBuffer, bytesRead);
+						
+					} catch (IOException e) {
+						System.err.println("ERROR at TCP");
+					}
+				}
+			} catch (IOException e1) {
+				//Catches the IOException but keeps the thread running.
+			}
+			
+		}
+		
+		System.out.println("TCP disconnected.");
+	}
+	
+	public abstract void receive(byte[] bytes, int bytesRead) throws IOException;
+	
+	public void send(byte[] bytes) throws IOException{
+		this.outStream.write(bytes); 
+	}
+	
+	public void disconnect() throws IOException{
+		this.stop = true;
+		this.socket.close();
+	}
+	
+	protected InetAddress getInetAddress(){
+		return this.socket.getInetAddress();
+	}
+	
+	protected int getPort(){
+		return this.socket.getPort();
+	}
+}

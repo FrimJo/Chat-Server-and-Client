@@ -1,0 +1,257 @@
+package application;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.SocketException;
+import java.net.UnknownHostException;
+
+import javafx.application.Platform;
+import javafx.collections.ObservableList;
+
+
+/** Singleton */
+public enum Client {
+	INSTANCE;
+	
+	private final String				dns_ip = "salt.cs.umu.se";
+	private final int					dns_port = 40000;
+	
+	
+	private GUI_Interface_Client		gui;
+	private ToDNS						dns_server;
+	
+	private Client(){ }
+	
+	public void init(final GUI_Interface_Client gui){
+		
+		this.gui = gui;
+		
+		try {
+			this.dns_server = new ToDNS(dns_ip, dns_port);
+			this.dns_server.getList();
+		} catch (UnknownHostException e) {
+			println("Couldn't setup DNS connection UnknownHostException.");
+		} catch (SocketException e1){
+			println("Couldn't setup DNS connection SocketException");
+		}
+	}
+	
+	public ToServer addToServer(final String server_ip, final int server_port) throws UnknownHostException, IOException{
+		return new ToServer(server_ip, server_port);
+	}
+	
+	public void connectToServer(ToServer server, String nick) throws UnknownHostException, IOException{
+		server.connect(nick);
+	}
+	
+	public void disconnectFromServer(final ToServer server) throws IOException{
+		server.disconnect();
+	}
+	
+	public void shutDown(ObservableList<ToServer> servers) throws IOException{
+		this.dns_server.disconnect();
+		for (ToServer server: servers){
+			server.disconnect();
+		}
+	}
+	
+	public void getListOfServers(){
+		this.dns_server.getList();
+	}
+	
+	public synchronized void addServer(final ToServer server){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.addServer(server);
+			}
+		});
+	}
+	
+	public synchronized void removeServer(final ToServer server){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.removeServer(server);
+			}
+		});
+	}
+	
+	public synchronized void updateServer(final ToServer newServer, final ToServer oldServer){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.updateServer(newServer, oldServer);
+			}
+		});
+	}
+	
+	public synchronized void clearServers(){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.clearServers();
+			}
+		});	
+	}
+	
+	
+	public synchronized void addUser(final User user){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.addUser(user);
+			}
+		});
+	}
+	
+	public synchronized void removeUser(final User user){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.removeUser(user);
+			}
+		});
+	}
+	
+	public synchronized void updateUser(final User newUser, final User oldUser){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.updateUser(newUser, oldUser);
+			}
+		});
+	}
+	
+	public synchronized void clearUsers(){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.clearUsers();
+			}
+		});
+	}
+	
+		
+	public synchronized void setTopic(final String topic){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.setTopic(topic);
+			}
+		});
+	}
+	
+	public synchronized void setNick(final String nick){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.setNick(nick);
+			}
+		});
+	}
+	
+		
+	public void getUserInfo(final User user, final ToServer server) throws SocketException, IOException {
+		server.getUserInfo(user);
+	}
+	
+	public String getNick(final ToServer server) {
+			return server.getNick();
+	}
+	
+	public void changeNick(final String nick, final ToServer server) throws SocketException, IOException {
+		server.changeNickName(nick);
+	}
+	
+	public String getTopic(ToServer server){
+		return server.getTopic();
+	}
+	
+	public void setTopic(final String topic, final ToServer server) throws SocketException, IOException {
+		server.setTopic(topic);
+	}
+	
+	public String getCryptKey(ToServer server){
+		return server.getCrypyKey();
+	}
+	
+	public void setCryptKey(String cryptKey, ToServer server){
+		server.setCryptKey(cryptKey);
+	}
+	
+	public void sendMessage(final ToServer server, final int type, final String text, final String cryptKey) throws SocketException, IOException, WrongCryptTypeException {
+		server.sendMessage(type, text);
+	}
+	
+	public synchronized void println(final String str){
+		Platform.runLater(new Runnable() {
+			@Override
+			public void run() {
+				gui.println(str);
+			}
+		});
+	}
+	
+	
+	private static class ToDNS extends UDP{
+		
+		public ToDNS(final String dns_ip, final int dns_port) throws UnknownHostException, SocketException{
+			super("DNS Thread", dns_ip, dns_port);
+		}
+		
+		@Override
+		public void receive(final byte[] bytes) throws IOException {
+			System.out.println("Receive PDU!");
+			PDU pdu = new PDU(bytes, bytes.length);
+			switch (pdu.getByte(0)) {
+				
+			case OpCodes.SLIST:
+				System.out.println("Received a SLIST.\n");
+
+				int nr_servers = pdu.getShort(2);
+				ToServer[] servers = new ToServer[nr_servers];
+				System.out.println("Nr of Servers: " + nr_servers);
+				
+				int index = 4;
+				for (int i = 1; i < nr_servers+1; i++){
+					System.out.println("-------NR-"+ i +"------");
+					InetAddress server_ip = InetAddress.getByAddress(pdu.getSubrange(index, 4));
+					System.out.println("Server IP: " + server_ip.getHostAddress() );
+					int server_port = pdu.getShort(index+4);
+					System.out.println("Server Port: " + server_port);
+					int nr_clients = pdu.getByte(index+6);
+					System.out.println("Number of Clients: " + nr_clients);
+					int topic_length = pdu.getByte(index+7);
+					System.out.println("Topic length: " + topic_length);
+					String topic = new String( pdu.getSubrange(index+8, topic_length) );
+					System.out.println("Topic: 2" + topic + "\n");
+					
+					topic = PDU_Factory.removeZeros(topic)[0];
+					
+					servers[i-1] = new ToServer(server_ip.getHostAddress(), server_port);
+					
+					index += 9 + topic_length + 4 - (topic_length + 1 %4);
+				}
+				
+				for(ToServer server : servers){
+					Client.INSTANCE.addServer(server);
+				}
+
+				break;
+			default:
+				System.out.println("Wrong OpCode received from server! ");
+				break;
+			}
+			
+		}
+		
+		public void getList(){
+			try {
+				sendPDU(PDU_Factory.getlist());
+			} catch (IOException e) {
+				System.out.println("5 - Client - DNS - IOException!");
+			}
+		}
+		
+	}
+}

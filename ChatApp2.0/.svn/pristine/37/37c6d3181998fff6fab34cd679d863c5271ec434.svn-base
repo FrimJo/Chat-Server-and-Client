@@ -1,0 +1,466 @@
+package application;
+
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.event.ActionEvent;
+import javafx.fxml.FXML;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.ListView;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.Button;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
+import javafx.scene.control.CheckBox;
+
+import java.io.IOException;
+import java.io.UnsupportedEncodingException;
+import java.net.SocketException;
+import java.net.URL;
+import java.net.UnknownHostException;
+import java.sql.Time;
+import java.util.ResourceBundle;
+
+import javafx.scene.input.MouseEvent;
+
+
+public class Client_GUI implements GUI_Interface_Client{
+
+	private Time time;
+	
+	private ToServer connectedServer;
+	
+    @FXML
+    private ResourceBundle resources;
+
+    @FXML
+    private URL location;
+    
+    @FXML
+    private ContextMenu nickViewContext;
+    
+    @FXML
+    private MenuItem contextWho;
+    
+    @FXML
+    private Button exitButton;
+    
+    @FXML
+    private Button updateButton;
+    
+    @FXML
+    private Button disconnectButton;
+    
+    @FXML
+    private Button connectButton;
+    
+    @FXML
+    private Button enterButton;
+    
+    @FXML
+    private ListView<ToServer> ServerView;
+    
+    @FXML
+    private ListView<User> nickView;
+    
+    @FXML
+    private TextField nickField;
+    
+    @FXML
+    private TextField inputField;
+    
+    @FXML
+    private TextField topicField;
+    
+    @FXML
+    private TextField cryptField;
+    
+    @FXML
+    private TextArea outputArea;
+    
+    @FXML
+    private CheckBox zipCheckBox;
+    
+    @FXML
+    void disconnectPressed(ActionEvent event){
+    	System.err.println("disconnectPressed");
+    	if(this.connectedServer != null){
+    		try {
+    			System.err.println("Trying to disconnect from server");
+				String server_ip = this.connectedServer.getInetAddress().getHostAddress();
+				int server_port = this.connectedServer.getPort();
+				ToServer newServer = new ToServer(server_ip, server_port, this.topicField.getText());
+				
+				int indexOfOldServer = this.ServerView.getSelectionModel().getSelectedIndex();
+				this.ServerView.getItems().remove(indexOfOldServer);
+				this.ServerView.getItems().add(indexOfOldServer, newServer);
+				
+				Client.INSTANCE.disconnectFromServer(this.connectedServer);
+				disableGUI();
+				println("Disonnected from server");
+			} catch (IOException e) {
+				System.err.println("Couldn't disconnect from server. IOException, allready disconnected?");
+			}
+		}else{
+			System.err.println("Couldn't disconnect from server, allready disconnected, or never connected?");
+		}
+    }
+    
+    @FXML
+    void connectPressed(ActionEvent event) {
+    	System.err.println("connectPressed");
+    	if(!this.nickField.getText().equals("")){
+    		System.err.println("Nick != null");
+    		ToServer selected = this.ServerView.getSelectionModel().getSelectedItem();
+    		if(selected != null){
+    			println("Selected != null");
+	        	try {
+	        		println("Trying to connect to server at " + selected.server_ip + ":" + selected.server_port);
+	        		Client.INSTANCE.connectToServer(selected, this.nickField.getText());
+	    			println("Connected to server");
+	    			enableGUI(selected);
+	        	} catch (UnknownHostException e) {
+	        		println("Couldn't connect to server. UnknownHostException");
+	    		} catch (IOException e) {
+	    			println("Couldn't connect to server. IOException");
+	    		}
+        	}else{
+        		println("Can't connect, please select a server.");
+        	}
+    	}else{
+    		println("Can't connect, please enter a nickname.");
+    	}
+    }
+    
+    @FXML
+    void whoClicked(ActionEvent event) {
+    	ToServer selected = this.ServerView.getSelectionModel().getSelectedItem();
+    	User user = this.nickView.getSelectionModel().getSelectedItem();
+    	try {
+			Client.INSTANCE.getUserInfo(user, selected);
+		} catch (SocketException e) {
+			println("User hans't connected, need to connect to server first to get Who-information.");
+		} catch (IOException e) {
+			println("Couldn't get Who-information.");
+		}
+    }
+
+    @FXML
+    void exitPressed(ActionEvent event) {
+    	try {
+    		println("Trying to shutdown");
+    		Client.INSTANCE.shutDown(this.ServerView.getItems());
+		} catch (IOException e) {
+			println("Couldn't shutdown.");
+		}
+    	Platform.exit();
+    }
+    
+    @FXML
+    void updatePressed(ActionEvent event){
+    	Client.INSTANCE.getListOfServers();
+    }
+    
+    @FXML
+    void enterPressed(ActionEvent event) {
+    	inputEnter(new ActionEvent());
+    }
+    
+    @FXML
+    void nickEnter(ActionEvent event) {
+    	if(this.connectedServer != null){
+	    	try {
+	    		println("Trying to change nickname");
+				Client.INSTANCE.changeNick(this.nickField.getText(), this.connectedServer);
+				println("Successfully changed nickname");
+	    	} catch (SocketException e) {
+				println("User hans't connected, need to connect to server first to change Nick.");
+			} catch (IOException e) {
+				println("Couldn't change nickname.");
+			}
+    	}
+    }
+    
+    @FXML
+    void inputEnter(ActionEvent event) {
+    	String command = this.inputField.getText();
+    	String[] strFirst = command.split(" ", 2);
+		if( strFirst[0].equals("connect") ){
+			String ipAndPort = command.split(" ", 2)[1];
+			String[] strSecond = ipAndPort.split(":", 2);
+			if(strSecond.length == 2){
+				String server_ip = strSecond[0];
+				
+				try {
+					int server_port = Integer.parseInt( strSecond[1] );
+					println("Trying to connect to server at " + server_ip + ":" + server_port);
+					
+					ToServer server = new ToServer(server_ip, server_port, this.topicField.getText()); 
+					addServer(server);
+					
+					Client.INSTANCE.connectToServer(server, this.nickField.getText());
+					
+				} catch (NumberFormatException e){
+					println("Wrong input parameter: connect connect server_ip:port");
+				} catch (UnknownHostException e) {
+					println("Couldn't add server. UnknownHostException");
+				} catch (IOException e) {
+					println("Couldn't add server. IOException");
+				}	
+			}else{
+				println("Wrong input parameter: connect server_ip:port");
+			}
+		}else{
+			sendMessage(command);
+		}
+		this.inputField.setText("");
+    }
+    
+    @FXML
+    void topicEnter(ActionEvent event) {
+    	
+    	if( this.connectedServer !=  null){
+    		try {
+				Client.INSTANCE.setTopic(this.topicField.getText(), this.connectedServer);
+    		} catch (SocketException e) {
+				println("User hans't join, need to join server first to change Topic.");
+    		} catch (IOException e) {
+				println("Couldn't set Topic.");
+			}
+    	}else{
+    		println("Please connect to a server.");
+    	}
+    }
+    
+    @FXML
+    void cryptEnter(ActionEvent event) {
+    	ToServer server;
+    	
+    	if( ( server = this.ServerView.getSelectionModel().getSelectedItem() ) != null){
+    		String cryptKey = this.cryptField.getText();
+    		try {
+				Client.INSTANCE.setCryptKey(cryptKey, server);
+			} catch (UnsupportedEncodingException e) {
+				println("Coludn't set cryptKey, try enter another key.");
+			}
+    		println("CryptKey set to: " + cryptKey);
+    	}
+    	
+    }
+    
+    @FXML
+    void serverListClicked(MouseEvent event) {
+    	ToServer selected;
+    	if( ( selected = this.ServerView.getSelectionModel().getSelectedItem() ) != null){
+    		this.topicField.setText(Client.INSTANCE.getTopic(selected));
+    		try {
+				this.cryptField.setText(Client.INSTANCE.getCryptKey(selected));
+    		} catch (UnsupportedEncodingException e) {
+				println("Coludn't set cryptKey, try enter another key.");
+			}
+    	}
+    }
+    
+    
+    @FXML
+    void initialize() {
+    	assert ServerView != null : "fx:id=\"ServerView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert contextWho != null : "fx:id=\"contextWho\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert cryptField != null : "fx:id=\"cryptField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert enterButton != null : "fx:id=\"enterButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert exitButton != null : "fx:id=\"exitButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert inputField != null : "fx:id=\"inputField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickField != null : "fx:id=\"nickField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickView != null : "fx:id=\"nickView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert nickViewContext != null : "fx:id=\"nickViewContext\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert outputArea != null : "fx:id=\"outputArea\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert topicField != null : "fx:id=\"topicField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert updateButton != null : "fx:id=\"updateButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert zipCheckBox != null : "fx:id=\"zipCheckBox\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert connectButton != null : "fx:id=\"connectButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert disconnectButton != null : "fx:id=\"disconnectButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+
+        this.time = new Time(System.currentTimeMillis());
+        
+        ObservableList<ToServer> serverData = FXCollections.observableArrayList();
+        this.ServerView.setItems(serverData);
+        
+        ObservableList<User> userData = FXCollections.observableArrayList();
+        this.nickView.setItems(userData);
+        
+        Client.INSTANCE.init(this);
+    }
+
+
+	@Override
+	public void print(String str) {
+		this.outputArea.appendText(str);
+	}
+
+
+	@Override
+	public void println(String str) {
+		print("(" +  this.time.toString() + ") " + str +'\n');
+	}
+	
+	public void println(String str, int timeStamp){
+		print("(" +  timeStamp + ") " + str +'\n');
+	}
+	
+	private void sendMessage(String text){
+		cryptEnter(new ActionEvent());
+		
+		
+		boolean isSelected = this.zipCheckBox.isSelected();
+		int type = MsgTypes.TEXT;
+		String cryptKey = this.cryptField.getText();
+		if( isSelected && !cryptKey.equals("") ){
+			type = MsgTypes.COMPCRYPT;
+		}else if( isSelected && cryptKey.equals("") ){
+			type = MsgTypes.COMP;
+		}else if(!isSelected && !cryptKey.equals("") ){
+			type = MsgTypes.CRYPT;
+		}
+		
+		
+		try {
+			if(this.connectedServer != null){
+				Client.INSTANCE.sendMessage(this.connectedServer, type, text);
+				println("Message sent.");
+			}else{
+				println("Pleas select a server.");
+			}
+			
+		} catch (SocketException e1) {
+			println("SocketException.");
+		} catch (WrongCryptTypeException e2) {
+			println("WrongCryptTypeException.");
+		} catch (IOException e3) {
+			println("IOException.");
+		}
+	}
+
+	@Override
+	public void addServer(ToServer server) {
+		println("addserver");
+		this.ServerView.getItems().add(server);
+		
+	}
+
+
+	@Override
+	public void removeServer(ToServer server) {
+		this.ServerView.getItems().remove(server);
+	}
+	
+	@Override
+	public void updateServer() {
+		ObservableList<ToServer> items = this.ServerView.getItems();
+		this.ServerView.setItems(null);
+		this.ServerView.setItems(items);
+	}
+	
+	
+	@Override
+	public void updateServer(ToServer newServer, ToServer oldServer) {
+		ObservableList<ToServer> items = this.ServerView.getItems();
+		if(items.contains(oldServer)){
+			int index = items.indexOf(oldServer);
+			items.remove(oldServer);
+			items.add(index, newServer);
+		}
+	}
+	
+	@Override
+	public void clearServers(){
+		this.ServerView.getItems().clear();
+	}
+
+
+	@Override
+	public void addUser(User user) {
+		this.nickView.getItems().add(user);
+		println("Added user " + user);
+	}
+	
+	@Override
+	public void removeUser(User user){
+		this.nickView.getItems().remove(user);
+	}
+	
+	@Override
+	public void updateUser(User newUser, User oldUser){
+		if(oldUser.getNick().equals(this.nickField.getText())){
+			this.nickField.setText(newUser.getNick());
+		}
+		
+		ObservableList<User> items = this.nickView.getItems();
+		if(items.contains(oldUser)){
+			int index = items.indexOf(oldUser);
+			println("Found " + oldUser + "at index " + index);
+			items.remove(index);
+			println("Removed " + oldUser + " from from items at index " + index);
+			items.add(index, newUser);
+			println("Added " + newUser + " at index: " + index);
+			this.nickView.setItems(items);
+		}else{
+			println("List didn't contain oldUser: " + oldUser);
+		}
+	}
+	@Override
+	public void clearUsers(){
+		this.nickView.getItems().clear();
+	}
+	
+	@Override
+	public void setTopic(String topic) {
+		this.topicField.setText(topic);
+		println("Topic changed to: " + topic);
+	}
+
+	@Override
+	public String getTopic() {
+		return this.topicField.getText();
+	}
+	
+	@Override
+	public void setNick(String nick){
+		this.nickField.setText(nick);
+	}
+	
+	@Override
+	public String getNick(){
+		return this.nickField.getText(); 
+	}
+	
+	public void disableGUI(){
+		this.topicField.setDisable(true);
+		this.cryptField.setDisable(true);
+		this.zipCheckBox.setDisable(true);
+		this.ServerView.setDisable(false);
+		this.nickView.setDisable(true);
+		this.outputArea.setDisable(true);
+		this.inputField.setDisable(true);
+		this.enterButton.setDisable(true);
+		this.connectButton.setVisible(true);
+		this.disconnectButton.setVisible(false);
+		this.connectedServer = null;
+		this.nickView.getItems().clear();
+		this.outputArea.clear();
+	}
+	
+	public void enableGUI(ToServer selected){
+		this.topicField.setDisable(false);
+		this.cryptField.setDisable(false);
+		this.zipCheckBox.setDisable(false);
+		this.ServerView.setDisable(true);
+		this.nickView.setDisable(false);
+		this.outputArea.setDisable(false);
+		this.inputField.setDisable(false);
+		this.enterButton.setDisable(false);
+		this.connectedServer = selected;
+		this.connectButton.setVisible(false);
+		this.disconnectButton.setVisible(true);
+	}
+}
+

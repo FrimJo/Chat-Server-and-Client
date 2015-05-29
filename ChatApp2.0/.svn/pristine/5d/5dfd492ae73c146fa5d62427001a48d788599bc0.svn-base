@@ -1,0 +1,29 @@
+package application;
+
+public class Client_GUI implements GUI_Interface{
+
+	@Override
+	public void print(String str) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void println(String str) {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public String in() {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public void start() {
+		// TODO Auto-generated method stub
+		
+	}
+
+}

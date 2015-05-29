@@ -1,0 +1,126 @@
+package application;
+
+import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.event.ActionEvent;
+import javafx.fxml.FXML;
+import javafx.scene.control.ListView;
+import javafx.scene.control.Button;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
+
+import java.io.IOException;
+import java.net.URL;
+import java.net.UnknownHostException;
+import java.util.ArrayList;
+import java.util.ResourceBundle;
+
+
+public class Client_GUI implements GUI_Interface_Client{
+
+    @FXML
+    private ResourceBundle resources;
+
+    @FXML
+    private URL location;
+
+    @FXML
+    private Button connectButton;
+    
+    @FXML
+    private Button exitButton;
+    
+    @FXML
+    private ListView<ServerInfo> ServerView;
+    
+    @FXML
+    private ListView<String> nickView;
+    
+    @FXML
+    private TextField inputField;
+    
+    @FXML
+    private TextArea outputArea;
+   
+    @FXML
+    void connectPressed(ActionEvent event) {
+    	ServerInfo selected = this.ServerView.getSelectionModel().getSelectedItem();
+    	
+    	try {
+			Client.INSTANCE.connectToServer(selected.getInetAddress().getHostAddress(), selected.getServerPort(), "Fredde");
+    	} catch (UnknownHostException e) {
+    		e.printStackTrace();
+		} catch (IOException e1) {
+			e1.printStackTrace();
+		}
+    }
+
+    @FXML
+    void exitPressed(ActionEvent event) {
+    	try {
+			Client.INSTANCE.shutDown();
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+    	Platform.exit();
+    }
+    
+    @FXML
+    void inputEnter(ActionEvent event) {
+		println(this.inputField.getText());
+		this.inputField.setText("");
+    }
+    
+    @FXML
+    void initialize() {
+    	assert nickView != null : "fx:id=\"nickView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+    	assert ServerView != null : "fx:id=\"ServerView\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert connectButton != null : "fx:id=\"connectButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert exitButton != null : "fx:id=\"exitButton\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert inputField != null : "fx:id=\"inputField\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        assert outputArea != null : "fx:id=\"outputArea\" was not injected: check your FXML file 'Client_GUI_Blueprint.fxml'.";
+        
+        Client.INSTANCE.init(this);
+    }
+
+
+	@Override
+	public void print(String str) {
+		this.outputArea.appendText(str);
+	}
+
+
+	@Override
+	public void println(String str) {
+		this.outputArea.appendText(str+"\n");
+	}
+
+
+	@Override
+	public void start() {
+		// TODO Auto-generated method stub
+		
+	}
+	
+	@Override
+	public String in(String str) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+	
+	@Override
+	public void receiveListOfServers(ArrayList<ServerInfo> serverList){
+		ObservableList<ServerInfo> servers = FXCollections.observableArrayList();
+		servers.addAll(serverList);
+		this.ServerView.setItems(servers);
+	}
+	
+	@Override
+	public void receiveListOfNicks(String[] nickList){
+		ObservableList<String> nicks = FXCollections.observableArrayList();
+		nicks.addAll(nickList);
+		this.nickView.setItems(nicks);
+	}
+}
+
