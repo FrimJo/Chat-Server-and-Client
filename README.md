@@ -11,5 +11,5 @@ We developed our own pakages and sent them over TCP protocol, we used threads to
 # Client
 Also implemented the TCP protocol and made it posible to set and change nickname and topic of a server.
 
-<img src="overview.png" alt="">
+<img src="src/overview.png" alt="">
 
